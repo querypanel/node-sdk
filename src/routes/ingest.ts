@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+// randomUUID is available via global crypto.randomUUID() in Node.js 18+ and Deno
 import type { ApiClient } from "../core/client";
 import type { QueryEngine } from "../core/query-engine";
 import type { SchemaIntrospection } from "../schema/types";
@@ -72,7 +72,7 @@ export async function syncSchema(
 	}
 
 	// Generate a session id so backend telemetry can correlate all work for this sync
-	const sessionId = randomUUID();
+	const sessionId = crypto.randomUUID();
 
 	const response = await client.post<IngestResponse>(
 		"/ingest",

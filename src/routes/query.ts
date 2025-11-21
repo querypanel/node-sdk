@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+// randomUUID is available via global crypto.randomUUID() in Node.js 18+ and Deno
 import type { ApiClient } from "../core/client";
 import type { ParamRecord, QueryEngine } from "../core/query-engine";
 
@@ -69,7 +69,7 @@ export async function ask(
 	signal?: AbortSignal,
 ): Promise<AskResponse> {
 	const tenantId = resolveTenantId(client, options.tenantId);
-	const sessionId = randomUUID();
+	const sessionId = crypto.randomUUID();
 	const maxRetry = options.maxRetry ?? 0;
 	let attempt = 0;
 	let lastError: string | undefined = options.lastError;

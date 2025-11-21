@@ -10,7 +10,7 @@ bun add @querypanel/sdk
 npm install @querypanel/sdk
 ```
 
-> **Runtime:** Node.js 18+ (or Bun). The SDK relies on the native `fetch` API.
+> **Runtime:** Node.js 18+, Deno, or Bun. The SDK uses Web Crypto API for JWT signing and the native `fetch` API, making it compatible with modern JavaScript runtimes.
 
 ## Quickstart
 
@@ -130,6 +130,25 @@ const dashboard = await qp.listActiveCharts({
 dashboard.data.forEach(item => {
   console.log(`Chart: ${item.chart?.title}`);
   console.log(`Data points: ${item.chart?.vega_lite_spec.data.values.length}`);
+});
+```
+
+## Deno Support
+
+The SDK is fully compatible with Deno (including Supabase Edge Functions) thanks to its use of Web Crypto API for JWT signing. No additional configuration needed:
+
+```ts
+import { QueryPanelSdkAPI } from "https://esm.sh/@querypanel/sdk";
+
+const qp = new QueryPanelSdkAPI(
+  Deno.env.get("QUERYPANEL_URL")!,
+  Deno.env.get("PRIVATE_KEY")!,
+  Deno.env.get("ORGANIZATION_ID")!,
+);
+
+// Use the SDK as normal - JWT signing works automatically
+const response = await qp.ask("Show top products", {
+  tenantId: "tenant_123",
 });
 ```
 
