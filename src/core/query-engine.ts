@@ -27,7 +27,11 @@ export class QueryEngine {
 	private databaseMetadata = new Map<string, DatabaseMetadata>();
 	private defaultDatabase?: string;
 
-	attachDatabase(name: string, adapter: DatabaseAdapter, metadata: DatabaseMetadata): void {
+	attachDatabase(
+		name: string,
+		adapter: DatabaseAdapter,
+		metadata: DatabaseMetadata,
+	): void {
 		this.databases.set(name, adapter);
 		this.databaseMetadata.set(name, metadata);
 		if (!this.defaultDatabase) {
@@ -139,18 +143,25 @@ export class QueryEngine {
 		}
 
 		const tenantField = metadata.tenantFieldName;
-		const paramKey = tenantField;
-		params[paramKey] = tenantId;
-
 		const normalizedSql = sql.toLowerCase();
 		if (normalizedSql.includes(tenantField.toLowerCase())) {
 			return sql;
 		}
 
-		const tenantPredicate =
-			metadata.dialect === "clickhouse"
-				? `${tenantField} = {${tenantField}:${metadata.tenantFieldType ?? "String"}}`
-				: `${tenantField} = '${tenantId}'`;
+		let tenantPredicate: string;
+
+		if (metadata.dialect === "clickhouse") {
+			// ClickHouse supports named parameters natively
+			const paramKey = tenantField;
+			params[paramKey] = tenantId;
+			tenantPredicate = `${tenantField} = {${tenantField}:${metadata.tenantFieldType ?? "String"}}`;
+		} else {
+			// Postgres (and others): Use literal to avoid modifying 'params' object.
+			// Modifying 'params' can break positional parameter mapping (e.g. $1, $2)
+			// because PostgresAdapter sorts named keys alphabetically to assign positions.
+			const escapedId = tenantId.replace(/'/g, "''");
+			tenantPredicate = `${tenantField} = '${escapedId}'`;
+		}
 
 		if (/\bwhere\b/i.test(sql)) {
 			return sql.replace(
