@@ -191,8 +191,9 @@ describe("QueryPanelSdkAPI", () => {
 		it("should generate and execute natural language query", async () => {
 			sdk.attachDatabase("my-db", mockAdapter);
 
-			vi.mocked(mockAdapter.validate).mockResolvedValue();
-			vi.mocked(mockAdapter.execute).mockResolvedValue({
+			// Just mock the implementation directly without vi.mocked()
+			(mockAdapter.validate as any).mockResolvedValue(undefined);
+			(mockAdapter.execute as any).mockResolvedValue({
 				rows: [{ id: 1, name: "Alice" }],
 				fields: ["id", "name"],
 			});

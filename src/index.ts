@@ -15,6 +15,7 @@ import * as activeChartsRoute from "./routes/active-charts";
 import * as chartsRoute from "./routes/charts";
 import * as ingestRoute from "./routes/ingest";
 import * as queryRoute from "./routes/query";
+import * as vizspecRoute from "./routes/vizspec";
 import type { SchemaIntrospection } from "./schema/types";
 
 // Re-export all public types
@@ -59,6 +60,28 @@ export type {
 	ChartEnvelope,
 	ContextDocument,
 } from "./routes/query";
+export type {
+	VizSpecGenerateInput,
+	VizSpecGenerateOptions,
+	VizSpecResponse,
+} from "./routes/vizspec";
+
+// Re-export VizSpec types
+export type {
+	VizSpec,
+	ChartSpec,
+	TableSpec,
+	MetricSpec,
+	FieldType,
+	ChartType,
+	FieldRef,
+	AxisField,
+	MetricField,
+	TableColumn,
+	ChartEncoding,
+	TableEncoding,
+	MetricEncoding,
+} from "./types/vizspec";
 
 // Re-export anonymizeResults utility
 export { anonymizeResults } from "./routes/query";
@@ -123,6 +146,7 @@ export class QueryPanelSdkAPI {
 			description?: string;
 			tags?: string[];
 			tenantFieldName?: string;
+			tenantFieldType?: string;
 			enforceTenantIsolation?: boolean;
 		},
 	): void {
@@ -134,6 +158,7 @@ export class QueryPanelSdkAPI {
 			description: options?.description,
 			tags: options?.tags,
 			tenantFieldName: options?.tenantFieldName,
+			tenantFieldType: options?.tenantFieldType ?? "String",
 			enforceTenantIsolation: options?.tenantFieldName
 				? (options?.enforceTenantIsolation ?? true)
 				: undefined,
@@ -185,6 +210,21 @@ export class QueryPanelSdkAPI {
 			this.client,
 			this.queryEngine,
 			question,
+			options,
+			signal,
+		);
+	}
+
+	// VizSpec generation
+
+	async generateVizSpec(
+		input: vizspecRoute.VizSpecGenerateInput,
+		options?: vizspecRoute.VizSpecGenerateOptions,
+		signal?: AbortSignal,
+	): Promise<vizspecRoute.VizSpecResponse> {
+		return await vizspecRoute.generateVizSpec(
+			this.client,
+			input,
 			options,
 			signal,
 		);

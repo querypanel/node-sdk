@@ -42,18 +42,26 @@ const createPostgresClient = () => async (sql: string, params?: unknown[]) => {
   }
 };
 
-qp.attachPostgres("analytics", createPostgresClient(), {
-  description: "Primary analytics warehouse",
-  tenantFieldName: "tenant_id",
-});
+	// Attach PostgreSQL database using the SDK's PostgresAdapter
+	// The SDK will automatically handle tenant isolation when tenantFieldName is provided
+	qp.attachPostgres(
+  "pg_demo",  // a uniq identifier for QueryPanel
+  createPostgresClientFn(),
+  {
+		database: "pg_demo", // database name
+		description: "PostgreSQL demo database", // some description that QueryPanel can use
+		tenantFieldName: "tenant_id", // SDK will automatically filter by tenant_id
+		enforceTenantIsolation: true, // Ensures all queries include tenant_id filter
+		allowedTables: ["orders"], // Only sync 'orders' table - 'users' will be excluded
+	});
 
 qp.attachClickhouse(
-  "clicks",
+  "clicks", // uniq identifier for QueryPanel
   (params) => clickhouse.query(params),
   {
-    database: "analytics",
-    tenantFieldName: "customer_id",
-    tenantFieldType: "String",
+    database: "analytics", // database name
+    tenantFieldName: "customer_id", // SDK will automatically filter by tenant_id
+    tenantFieldType: "String", // SDK will use it in the clickhouse query as {customer_id::String}
   },
 );
 

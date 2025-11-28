@@ -3,6 +3,8 @@
  * Following Ousterhout's principle: "Pull complexity downward"
  */
 
+import crypto from 'node:crypto';
+
 // Web Crypto API type declarations (available in Node.js 18+, Deno, and Bun)
 // Minimal type declaration for server-side use without DOM types
 // This matches the Web Crypto API CryptoKey interface

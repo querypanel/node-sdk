@@ -8,6 +8,7 @@ export interface SdkChart {
 	sql: string;
 	sql_params: Record<string, unknown> | null;
 	vega_lite_spec: Record<string, unknown>;
+	spec_type?: 'vega-lite' | 'vizspec'; // Type discriminator for spec format
 	query_id: string | null;
 	organization_id: string | null;
 	tenant_id: string | null;
@@ -24,6 +25,7 @@ export interface ChartCreateInput {
 	sql: string;
 	sql_params?: Record<string, unknown>;
 	vega_lite_spec: Record<string, unknown>;
+	spec_type?: 'vega-lite' | 'vizspec'; // Defaults to 'vega-lite' if not specified
 	query_id?: string;
 	target_db?: string;
 }
@@ -34,6 +36,7 @@ export interface ChartUpdateInput {
 	sql?: string;
 	sql_params?: Record<string, unknown>;
 	vega_lite_spec?: Record<string, unknown>;
+	spec_type?: 'vega-lite' | 'vizspec';
 	target_db?: string;
 }
 

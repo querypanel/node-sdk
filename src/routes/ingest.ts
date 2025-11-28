@@ -1,4 +1,4 @@
-// randomUUID is available via global crypto.randomUUID() in Node.js 18+ and Deno
+import crypto from 'node:crypto';
 import type { ApiClient } from "../core/client";
 import type { QueryEngine } from "../core/query-engine";
 import type { SchemaIntrospection } from "../schema/types";

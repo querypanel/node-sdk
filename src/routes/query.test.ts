@@ -15,6 +15,11 @@ describe("routes/query", () => {
 
 		mockQueryEngine = {
 			getDefaultDatabase: vi.fn(() => "default-db"),
+			getDatabaseMetadata: vi.fn((name) =>
+				name === "default-db" || name === "custom-db" || name === "test-db"
+					? { name, dialect: "postgres" }
+					: undefined,
+			),
 			mapGeneratedParams: vi.fn((params) => {
 				const record: Record<string, any> = {};
 				params.forEach((p: any) => {

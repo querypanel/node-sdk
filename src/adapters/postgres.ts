@@ -107,10 +107,18 @@ export class PostgresAdapter implements DatabaseAdapter {
 			this.allowedTables.map((t) => tableKey(t.schema, t.table)),
 		);
 
+		// First, neutralize function calls that use FROM keyword (EXTRACT, SUBSTRING, TRIM, etc.)
+		// Replace their FROM with a placeholder to avoid false positives
+		const neutralizedSql = sql
+			.replace(/EXTRACT\s*\([^)]*FROM\s+[^)]+\)/gi, "EXTRACT(/*neutralized*/)")
+			.replace(/SUBSTRING\s*\([^)]*FROM\s+[^)]+\)/gi, "SUBSTRING(/*neutralized*/)")
+			.replace(/TRIM\s*\([^)]*FROM\s+[^)]+\)/gi, "TRIM(/*neutralized*/)")
+			.replace(/POSITION\s*\([^)]*FROM\s+[^)]+\)/gi, "POSITION(/*neutralized*/)");
+
 		// Extract potential table references from SQL
 		const tablePattern =
 			/(?:FROM|JOIN)\s+(?:ONLY\s+)?(?:([a-zA-Z_][a-zA-Z0-9_]*)\.)?(["']?[a-zA-Z_][a-zA-Z0-9_]*["']?)/gi;
-		const matches = sql.matchAll(tablePattern);
+		const matches = neutralizedSql.matchAll(tablePattern);
 
 		for (const match of matches) {
 			const schema = match[1] ?? this.defaultSchema;

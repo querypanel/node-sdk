@@ -1,6 +1,7 @@
-// randomUUID is available via global crypto.randomUUID() in Node.js 18+ and Deno
+import crypto from 'node:crypto';
 import type { ApiClient } from "../core/client";
 import type { ParamRecord, QueryEngine } from "../core/query-engine";
+import type { VizSpec } from "../types/vizspec";
 
 export interface ContextDocument {
 	source?: string;
@@ -10,7 +11,9 @@ export interface ContextDocument {
 }
 
 export interface ChartEnvelope {
-	vegaLiteSpec: Record<string, unknown> | null;
+	vegaLiteSpec?: Record<string, unknown> | null;
+	vizSpec?: VizSpec | null;
+	specType: 'vega-lite' | 'vizspec';
 	notes: string | null;
 }
 
@@ -23,6 +26,7 @@ export interface AskOptions {
 	previousSql?: string;
 	maxRetry?: number;
 	chartMaxRetries?: number;
+	chartType?: 'vega-lite' | 'vizspec'; // Choose chart generation method
 }
 
 export interface AskResponse {
@@ -57,6 +61,11 @@ interface ServerChartResponse {
 	notes: string | null;
 }
 
+interface ServerVizSpecResponse {
+	spec: VizSpec;
+	notes: string | null;
+}
+
 /**
  * Route module for natural language query generation
  * Simple orchestration following Ousterhout's principle
@@ -78,6 +87,22 @@ export async function ask(
 	while (attempt <= maxRetry) {
 		// Step 1: Get SQL from backend
 		console.log({ lastError, previousSql });
+
+		const databaseName = options.database ?? queryEngine.getDefaultDatabase();
+		const metadata = databaseName
+			? queryEngine.getDatabaseMetadata(databaseName)
+			: undefined;
+
+		// Include tenant settings if available in metadata
+		let tenantSettings: Record<string, unknown> | undefined;
+		if (metadata?.tenantFieldName) {
+			tenantSettings = {
+				tenantFieldName: metadata.tenantFieldName,
+				tenantFieldType: metadata.tenantFieldType,
+				enforceTenantIsolation: metadata.enforceTenantIsolation,
+			};
+		}
+
 		const queryResponse = await client.post<ServerQueryResponse>(
 			"/query",
 			{
@@ -85,6 +110,9 @@ export async function ask(
 				...(lastError ? { last_error: lastError } : {}),
 				...(previousSql ? { previous_sql: previousSql } : {}),
 				...(options.maxRetry ? { max_retry: options.maxRetry } : {}),
+				...(tenantSettings ? { tenant_settings: tenantSettings } : {}),
+				...(databaseName ? { database: databaseName } : {}),
+				...(metadata?.dialect ? { dialect: metadata.dialect } : {}),
 			},
 			tenantId,
 			options.userId,
@@ -93,11 +121,11 @@ export async function ask(
 			sessionId,
 		);
 
-		const databaseName =
+		const dbName =
 			queryResponse.database ??
 			options.database ??
 			queryEngine.getDefaultDatabase();
-		if (!databaseName) {
+		if (!dbName) {
 			throw new Error(
 				"No database attached. Call attachPostgres/attachClickhouse first.",
 			);
@@ -114,45 +142,75 @@ export async function ask(
 			const execution = await queryEngine.validateAndExecute(
 				queryResponse.sql,
 				paramValues,
-				databaseName,
+				dbName,
 				tenantId,
 			);
 			const rows = execution.rows ?? [];
 
 			// Step 4: Generate chart if we have data
+			const chartType = options.chartType ?? 'vega-lite'; // Default to vega-lite for backward compatibility
 			let chart: ChartEnvelope = {
-				vegaLiteSpec: null,
+				specType: chartType,
 				notes: rows.length === 0 ? "Query returned no rows." : null,
 			};
 
 			if (rows.length > 0) {
-				const chartResponse = await client.post<ServerChartResponse>(
-					"/chart",
-					{
-						question,
-						sql: queryResponse.sql,
-						rationale: queryResponse.rationale,
-						fields: execution.fields,
-						rows: anonymizeResults(rows),
-						max_retries: options.chartMaxRetries ?? 3,
-						query_id: queryResponse.queryId,
-					},
-					tenantId,
-					options.userId,
-					options.scopes,
-					signal,
-					sessionId,
-				);
+				if (chartType === 'vizspec') {
+					// Use new VizSpec generation
+					const vizspecResponse = await client.post<ServerVizSpecResponse>(
+						"/vizspec",
+						{
+							question,
+							sql: queryResponse.sql,
+							rationale: queryResponse.rationale,
+							fields: execution.fields,
+							rows: anonymizeResults(rows),
+							max_retries: options.chartMaxRetries ?? 3,
+							query_id: queryResponse.queryId,
+						},
+						tenantId,
+						options.userId,
+						options.scopes,
+						signal,
+						sessionId,
+					);
 
-				chart = {
-					vegaLiteSpec: chartResponse.chart
-						? {
-								...chartResponse.chart,
-								data: { values: rows },
-							}
-						: null,
-					notes: chartResponse.notes,
-				};
+					chart = {
+						vizSpec: vizspecResponse.spec,
+						specType: 'vizspec',
+						notes: vizspecResponse.notes,
+					};
+				} else {
+					// Use traditional Vega-Lite chart generation
+					const chartResponse = await client.post<ServerChartResponse>(
+						"/chart",
+						{
+							question,
+							sql: queryResponse.sql,
+							rationale: queryResponse.rationale,
+							fields: execution.fields,
+							rows: anonymizeResults(rows),
+							max_retries: options.chartMaxRetries ?? 3,
+							query_id: queryResponse.queryId,
+						},
+						tenantId,
+						options.userId,
+						options.scopes,
+						signal,
+						sessionId,
+					);
+
+					chart = {
+						vegaLiteSpec: chartResponse.chart
+							? {
+									...chartResponse.chart,
+									data: { values: rows },
+								}
+							: null,
+						specType: 'vega-lite',
+						notes: chartResponse.notes,
+					};
+				}
 			}
 
 			return {
@@ -167,7 +225,7 @@ export async function ask(
 				chart,
 				context: queryResponse.context,
 				attempts: attempt + 1,
-				target_db: databaseName,
+				target_db: dbName,
 			};
 		} catch (error) {
 			attempt++;

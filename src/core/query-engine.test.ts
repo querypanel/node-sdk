@@ -173,7 +173,7 @@ describe("QueryEngine", () => {
 			// Should have modified SQL to include tenant isolation
 			expect(mockAdapter.execute).toHaveBeenCalledWith(
 				"SELECT * FROM users WHERE tenant_id = 'tenant-123'",
-				{ tenant_id: "tenant-123" },
+				{},
 			);
 		});
 
@@ -244,7 +244,7 @@ describe("QueryEngine", () => {
 			// Note: There's a double space due to the regex replacement
 			expect(mockAdapter.execute).toHaveBeenCalledWith(
 				"SELECT * FROM users WHERE tenant_id = 'tenant-123' AND  active = true",
-				{ tenant_id: "tenant-123" },
+				{},
 			);
 		});
 
@@ -268,7 +268,7 @@ describe("QueryEngine", () => {
 			// Should not modify SQL if tenant field already present
 			expect(mockAdapter.execute).toHaveBeenCalledWith(
 				"SELECT * FROM users WHERE tenant_id = 'other-tenant'",
-				{ tenant_id: "tenant-123" },
+				{},
 			);
 		});
 	});

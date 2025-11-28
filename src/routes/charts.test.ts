@@ -23,7 +23,8 @@ describe("routes/charts", () => {
 		} as any;
 
 		mockQueryEngine = {
-			execute: vi.fn(),
+			validateAndExecute: vi.fn(),
+			getDefaultDatabase: vi.fn(() => "default-db"),
 		} as any;
 	});
 
@@ -234,9 +235,9 @@ describe("routes/charts", () => {
 			];
 
 			vi.mocked(mockClient.get).mockResolvedValue(paginatedResponse);
-			vi.mocked(mockQueryEngine.execute)
-				.mockResolvedValueOnce(queryResult1)
-				.mockResolvedValueOnce(queryResult2);
+			vi.mocked(mockQueryEngine.validateAndExecute)
+				.mockResolvedValueOnce({ rows: queryResult1, fields: [] })
+				.mockResolvedValueOnce({ rows: queryResult2, fields: [] });
 
 			const result = await listCharts(
 				mockClient,
@@ -262,15 +263,17 @@ describe("routes/charts", () => {
 				},
 			});
 
-			expect(mockQueryEngine.execute).toHaveBeenCalledWith(
+			expect(mockQueryEngine.validateAndExecute).toHaveBeenCalledWith(
 				"SELECT * FROM users WHERE id = :id",
 				{ id: 1 },
 				"custom-db",
+				"tenant-1",
 			);
-			expect(mockQueryEngine.execute).toHaveBeenCalledWith(
+			expect(mockQueryEngine.validateAndExecute).toHaveBeenCalledWith(
 				"SELECT * FROM orders",
-				undefined,
-				undefined,
+				{},
+				"default-db", // Using default db since target_db is null
+				"tenant-1",
 			);
 		});
 
@@ -326,7 +329,10 @@ describe("routes/charts", () => {
 			];
 
 			vi.mocked(mockClient.get).mockResolvedValue(chart);
-			vi.mocked(mockQueryEngine.execute).mockResolvedValue(queryResult);
+			vi.mocked(mockQueryEngine.validateAndExecute).mockResolvedValue({
+				rows: queryResult,
+				fields: [],
+			});
 
 			const result = await getChart(
 				mockClient,
@@ -341,10 +347,11 @@ describe("routes/charts", () => {
 					values: queryResult,
 				},
 			});
-			expect(mockQueryEngine.execute).toHaveBeenCalledWith(
+			expect(mockQueryEngine.validateAndExecute).toHaveBeenCalledWith(
 				"SELECT * FROM users",
-				undefined,
-				undefined,
+				{},
+				"default-db",
+				"tenant-1",
 			);
 		});
 
