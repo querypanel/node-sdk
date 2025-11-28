@@ -1,0 +1,73 @@
+{
+	"name": "@querypanel/node-sdk",
+	"version": "1.0.42",
+	"description": "TypeScript/Node.js SDK for the QueryPanel API",
+	"license": "UNLICENSED",
+	"type": "module",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/querypanel/node-sdk.git"
+	},
+	"author": "QueryPanel",
+	"homepage": "https://querypanel.io",
+	"bugs": {
+		"url": "https://github.com/querypanel/node-sdk/issues"
+	},
+	"keywords": [
+		"querypanel",
+		"sdk",
+		"node",
+		"javascript",
+		"typescript",
+		"text-to-dashboard",
+		"natural-language-to-sql",
+		"text-to-sql"
+	],
+	"main": "dist/index.cjs",
+	"module": "dist/index.js",
+	"types": "dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js",
+			"require": "./dist/index.cjs"
+		}
+	},
+	"files": [
+		"dist"
+	],
+	"scripts": {
+		"build": "tsup",
+		"dev": "tsup --watch",
+		"clean": "rm -rf dist",
+		"check": "tsc --noEmit",
+		"test": "vitest run src/",
+		"test:watch": "vitest src/",
+		"test:ui": "vitest --ui",
+		"test:coverage": "vitest run --coverage src/",
+		"test:integration": "TEST_TYPE=integration vitest run test/integration/",
+		"test:integration:watch": "TEST_TYPE=integration vitest test/integration/",
+		"test:all": "vitest run src/ && TEST_TYPE=integration vitest run test/integration/",
+		"demo:full-flow": "bun test/full-flow-demo.ts",
+		"docker:test:up": "docker-compose -f docker-compose.test.yml up -d",
+		"docker:test:down": "docker-compose -f docker-compose.test.yml down -v",
+		"docker:test:logs": "docker-compose -f docker-compose.test.yml logs -f"
+	},
+	"engines": {
+		"node": ">=18"
+	},
+	"dependencies": {},
+	"devDependencies": {
+		"@clickhouse/client": "^1.13.0",
+		"@types/pg": "^8.15.6",
+		"@vitest/coverage-v8": "^4.0.10",
+		"@vitest/ui": "^4.0.10",
+		"pg": "^8.16.3",
+		"tsup": "^8.5.1",
+		"typescript": "^5.6.3",
+		"vitest": "^4.0.10"
+	},
+	"optionalDependencies": {
+		"@rollup/rollup-linux-x64-gnu": "^4.53.2"
+	}
+}
