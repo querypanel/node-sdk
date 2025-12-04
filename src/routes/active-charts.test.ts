@@ -1,18 +1,24 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import {
 	createActiveChart,
-	listActiveCharts,
-	getActiveChart,
-	updateActiveChart,
 	deleteActiveChart,
+	getActiveChart,
+	listActiveCharts,
+	updateActiveChart,
 } from "./active-charts";
-import type { ApiClient } from "../core/client";
-import type { QueryEngine } from "../core/query-engine";
 import * as charts from "./charts";
 
 describe("routes/active-charts", () => {
-	let mockClient: ApiClient;
-	let mockQueryEngine: QueryEngine;
+	let mockClient: {
+		post: Mock;
+		get: Mock;
+		put: Mock;
+		delete: Mock;
+		getDefaultTenantId: Mock;
+	};
+	let mockQueryEngine: {
+		execute: Mock;
+	};
 
 	beforeEach(() => {
 		vi.restoreAllMocks();
@@ -23,11 +29,11 @@ describe("routes/active-charts", () => {
 			put: vi.fn(),
 			delete: vi.fn(),
 			getDefaultTenantId: vi.fn(() => "default-tenant"),
-		} as any;
+		};
 
 		mockQueryEngine = {
 			execute: vi.fn(),
-		} as any;
+		};
 	});
 
 	describe("createActiveChart", () => {
@@ -48,13 +54,11 @@ describe("routes/active-charts", () => {
 				updated_at: "2024-01-01T00:00:00Z",
 			};
 
-			vi.mocked(mockClient.post).mockResolvedValue(activeChartResponse);
+			mockClient.post.mockResolvedValue(activeChartResponse);
 
-			const result = await createActiveChart(
-				mockClient,
-				activeChartInput,
-				{ tenantId: "tenant-1" },
-			);
+			const result = await createActiveChart(mockClient, activeChartInput, {
+				tenantId: "tenant-1",
+			});
 
 			expect(result).toEqual(activeChartResponse);
 			expect(mockClient.post).toHaveBeenCalledWith(
@@ -68,7 +72,7 @@ describe("routes/active-charts", () => {
 		});
 
 		it("should throw error if no tenant ID available", async () => {
-			vi.mocked(mockClient.getDefaultTenantId).mockReturnValue(undefined);
+			mockClient.getDefaultTenantId.mockReturnValue(undefined);
 
 			await expect(
 				createActiveChart(
@@ -108,19 +112,15 @@ describe("routes/active-charts", () => {
 				},
 			};
 
-			vi.mocked(mockClient.get).mockResolvedValue(paginatedResponse);
+			mockClient.get.mockResolvedValue(paginatedResponse);
 
-			const result = await listActiveCharts(
-				mockClient,
-				mockQueryEngine,
-				{
-					tenantId: "tenant-1",
-					pagination: {
-						page: 2,
-						limit: 50,
-					},
+			const result = await listActiveCharts(mockClient, mockQueryEngine, {
+				tenantId: "tenant-1",
+				pagination: {
+					page: 2,
+					limit: 50,
 				},
-			);
+			});
 
 			expect(result).toEqual(paginatedResponse);
 			expect(mockClient.get).toHaveBeenCalledWith(
@@ -145,25 +145,21 @@ describe("routes/active-charts", () => {
 				},
 			};
 
-			vi.mocked(mockClient.get).mockResolvedValue(paginatedResponse);
+			mockClient.get.mockResolvedValue(paginatedResponse);
 
-			await listActiveCharts(
-				mockClient,
-				mockQueryEngine,
-				{
-					tenantId: "tenant-1",
-					sortBy: "created_at",
-					sortDir: "desc",
-					title: "Test Chart",
-					userFilter: "user-123",
-					createdFrom: "2024-01-01",
-					createdTo: "2024-12-31",
-					updatedFrom: "2024-01-01",
-					updatedTo: "2024-12-31",
-				},
-			);
+			await listActiveCharts(mockClient, mockQueryEngine, {
+				tenantId: "tenant-1",
+				sortBy: "created_at",
+				sortDir: "desc",
+				title: "Test Chart",
+				userFilter: "user-123",
+				createdFrom: "2024-01-01",
+				createdTo: "2024-12-31",
+				updatedFrom: "2024-01-01",
+				updatedTo: "2024-12-31",
+			});
 
-			const call = vi.mocked(mockClient.get).mock.calls[0];
+			const call = mockClient.get.mock.calls[0];
 			expect(call[0]).toContain("sort_by=created_at");
 			expect(call[0]).toContain("sort_dir=desc");
 			expect(call[0]).toContain("name=Test+Chart");
@@ -235,17 +231,13 @@ describe("routes/active-charts", () => {
 				updated_at: "2024-01-01T00:00:00Z",
 			};
 
-			vi.mocked(mockClient.get).mockResolvedValue(paginatedResponse);
+			mockClient.get.mockResolvedValue(paginatedResponse);
 			vi.spyOn(charts, "getChart").mockResolvedValue(chartWithData);
 
-			const result = await listActiveCharts(
-				mockClient,
-				mockQueryEngine,
-				{
-					tenantId: "tenant-1",
-					withData: true,
-				},
-			);
+			const result = await listActiveCharts(mockClient, mockQueryEngine, {
+				tenantId: "tenant-1",
+				withData: true,
+			});
 
 			expect(result.data).toHaveLength(1);
 			expect(result.data[0].chart).toEqual(chartWithData);
@@ -289,17 +281,13 @@ describe("routes/active-charts", () => {
 				},
 			};
 
-			vi.mocked(mockClient.get).mockResolvedValue(paginatedResponse);
+			mockClient.get.mockResolvedValue(paginatedResponse);
 			vi.spyOn(charts, "getChart");
 
-			const result = await listActiveCharts(
-				mockClient,
-				mockQueryEngine,
-				{
-					tenantId: "tenant-1",
-					withData: true,
-				},
-			);
+			const result = await listActiveCharts(mockClient, mockQueryEngine, {
+				tenantId: "tenant-1",
+				withData: true,
+			});
 
 			expect(result.data).toHaveLength(1);
 			expect(result.data[0].chart).toBeNull();
@@ -307,7 +295,7 @@ describe("routes/active-charts", () => {
 		});
 
 		it("should use default tenant ID if not provided", async () => {
-			vi.mocked(mockClient.get).mockResolvedValue({
+			mockClient.get.mockResolvedValue({
 				data: [],
 				pagination: {
 					page: 1,
@@ -322,12 +310,12 @@ describe("routes/active-charts", () => {
 			await listActiveCharts(mockClient, mockQueryEngine, {});
 
 			expect(mockClient.getDefaultTenantId).toHaveBeenCalled();
-			const call = vi.mocked(mockClient.get).mock.calls[0];
+			const call = mockClient.get.mock.calls[0];
 			expect(call[1]).toBe("default-tenant");
 		});
 
 		it("should throw error if no tenant ID available", async () => {
-			vi.mocked(mockClient.getDefaultTenantId).mockReturnValue(undefined);
+			mockClient.getDefaultTenantId.mockReturnValue(undefined);
 
 			await expect(
 				listActiveCharts(mockClient, mockQueryEngine, {}),
@@ -349,7 +337,7 @@ describe("routes/active-charts", () => {
 				updated_at: "2024-01-01T00:00:00Z",
 			};
 
-			vi.mocked(mockClient.get).mockResolvedValue(activeChart);
+			mockClient.get.mockResolvedValue(activeChart);
 
 			const result = await getActiveChart(
 				mockClient,
@@ -401,7 +389,7 @@ describe("routes/active-charts", () => {
 				updated_at: "2024-01-01T00:00:00Z",
 			};
 
-			vi.mocked(mockClient.get).mockResolvedValue(activeChart);
+			mockClient.get.mockResolvedValue(activeChart);
 			vi.spyOn(charts, "getChart").mockResolvedValue(chartWithData);
 
 			const result = await getActiveChart(
@@ -440,7 +428,7 @@ describe("routes/active-charts", () => {
 				updated_at: "2024-01-01T00:00:00Z",
 			};
 
-			vi.mocked(mockClient.get).mockResolvedValue(activeChart);
+			mockClient.get.mockResolvedValue(activeChart);
 			vi.spyOn(charts, "getChart");
 
 			const result = await getActiveChart(
@@ -458,7 +446,7 @@ describe("routes/active-charts", () => {
 		});
 
 		it("should throw error if no tenant ID available", async () => {
-			vi.mocked(mockClient.getDefaultTenantId).mockReturnValue(undefined);
+			mockClient.getDefaultTenantId.mockReturnValue(undefined);
 
 			await expect(
 				getActiveChart(mockClient, mockQueryEngine, "active-1", {}),
@@ -485,7 +473,7 @@ describe("routes/active-charts", () => {
 				updated_at: "2024-01-01T00:00:00Z",
 			};
 
-			vi.mocked(mockClient.put).mockResolvedValue(updatedActiveChart);
+			mockClient.put.mockResolvedValue(updatedActiveChart);
 
 			const result = await updateActiveChart(
 				mockClient,
@@ -506,7 +494,7 @@ describe("routes/active-charts", () => {
 		});
 
 		it("should throw error if no tenant ID available", async () => {
-			vi.mocked(mockClient.getDefaultTenantId).mockReturnValue(undefined);
+			mockClient.getDefaultTenantId.mockReturnValue(undefined);
 
 			await expect(
 				updateActiveChart(mockClient, "active-1", { order: 1 }, {}),
@@ -516,7 +504,7 @@ describe("routes/active-charts", () => {
 
 	describe("deleteActiveChart", () => {
 		it("should delete an active chart", async () => {
-			vi.mocked(mockClient.delete).mockResolvedValue(undefined);
+			mockClient.delete.mockResolvedValue(undefined);
 
 			await deleteActiveChart(mockClient, "active-1", { tenantId: "tenant-1" });
 
@@ -530,7 +518,7 @@ describe("routes/active-charts", () => {
 		});
 
 		it("should throw error if no tenant ID available", async () => {
-			vi.mocked(mockClient.getDefaultTenantId).mockReturnValue(undefined);
+			mockClient.getDefaultTenantId.mockReturnValue(undefined);
 
 			await expect(
 				deleteActiveChart(mockClient, "active-1", {}),

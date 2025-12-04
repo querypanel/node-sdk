@@ -1,10 +1,14 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { QueryEngine, type DatabaseMetadata } from "./query-engine";
-import type { DatabaseAdapter } from "../adapters/types";
+import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
+import { type DatabaseMetadata, QueryEngine } from "./query-engine";
 
 describe("QueryEngine", () => {
 	let queryEngine: QueryEngine;
-	let mockAdapter: DatabaseAdapter;
+	let mockAdapter: {
+		execute: Mock;
+		validate: Mock;
+		introspect: Mock;
+		getDialect: Mock;
+	};
 
 	beforeEach(() => {
 		queryEngine = new QueryEngine();
@@ -117,8 +121,8 @@ describe("QueryEngine", () => {
 
 	describe("validateAndExecute", () => {
 		beforeEach(() => {
-			vi.mocked(mockAdapter.validate).mockResolvedValue();
-			vi.mocked(mockAdapter.execute).mockResolvedValue({
+			mockAdapter.validate.mockResolvedValue();
+			mockAdapter.execute.mockResolvedValue({
 				rows: [{ id: 1, name: "test" }],
 				fields: ["id", "name"],
 			});
@@ -275,7 +279,7 @@ describe("QueryEngine", () => {
 
 	describe("execute", () => {
 		it("should execute SQL and return rows", async () => {
-			vi.mocked(mockAdapter.execute).mockResolvedValue({
+			mockAdapter.execute.mockResolvedValue({
 				rows: [{ id: 1 }],
 				fields: ["id"],
 			});
@@ -294,16 +298,13 @@ describe("QueryEngine", () => {
 			);
 
 			expect(result).toEqual([{ id: 1 }]);
-			expect(mockAdapter.execute).toHaveBeenCalledWith(
-				"SELECT * FROM users",
-				{ limit: 10 },
-			);
+			expect(mockAdapter.execute).toHaveBeenCalledWith("SELECT * FROM users", {
+				limit: 10,
+			});
 		});
 
 		it("should return empty array on error", async () => {
-			vi.mocked(mockAdapter.execute).mockRejectedValue(
-				new Error("Connection failed"),
-			);
+			mockAdapter.execute.mockRejectedValue(new Error("Connection failed"));
 
 			const metadata: DatabaseMetadata = {
 				name: "test-db",

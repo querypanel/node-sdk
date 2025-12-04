@@ -1,7 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { QueryPanelSdkAPI } from "./index";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DatabaseAdapter } from "./adapters/types";
-import { TEST_PRIVATE_KEY, TEST_ORG_ID, TEST_BASE_URL } from "./test-utils";
+import { QueryPanelSdkAPI } from "./index";
+import { TEST_BASE_URL, TEST_ORG_ID, TEST_PRIVATE_KEY } from "./test-utils";
 
 describe("QueryPanelSdkAPI", () => {
 	const mockBaseUrl = TEST_BASE_URL;
@@ -232,8 +232,8 @@ describe("QueryPanelSdkAPI", () => {
 		it("should use default tenant ID", async () => {
 			sdk.attachDatabase("my-db", mockAdapter);
 
-			vi.mocked(mockAdapter.validate).mockResolvedValue();
-			vi.mocked(mockAdapter.execute).mockResolvedValue({
+			(mockAdapter.validate as any).mockResolvedValue(undefined);
+			(mockAdapter.execute as any).mockResolvedValue({
 				rows: [],
 				fields: [],
 			});
@@ -329,7 +329,8 @@ describe("QueryPanelSdkAPI", () => {
 		it("should get chart by ID", async () => {
 			sdk.attachDatabase("my-db", mockAdapter);
 
-			vi.mocked(mockAdapter.execute).mockResolvedValue({
+			(mockAdapter.validate as any).mockResolvedValue(undefined);
+			(mockAdapter.execute as any).mockResolvedValue({
 				rows: [{ count: 5 }],
 				fields: ["count"],
 			});
@@ -491,6 +492,183 @@ describe("QueryPanelSdkAPI", () => {
 				"https://api.example.com/active-charts/active-1",
 				expect.objectContaining({ method: "DELETE" }),
 			);
+		});
+	});
+
+	describe("modifyChart", () => {
+		it("should modify chart with visualization changes", async () => {
+			sdk.attachDatabase("my-db", mockAdapter);
+
+			(mockAdapter.validate as any).mockResolvedValue(undefined);
+			(mockAdapter.execute as any).mockResolvedValue({
+				rows: [{ country: "US", revenue: 1000 }],
+				fields: ["country", "revenue"],
+			});
+
+			mockFetch.mockResolvedValue({
+				ok: true,
+				text: async () =>
+					JSON.stringify({
+						chart: { mark: "bar", encoding: {} },
+						notes: null,
+					}),
+			});
+
+			const result = await sdk.modifyChart({
+				sql: "SELECT country, revenue FROM sales",
+				question: "revenue by country",
+				database: "my-db",
+				vizModifications: {
+					chartType: "bar",
+					xAxis: { field: "country" },
+					yAxis: { field: "revenue", aggregate: "sum" },
+				},
+			});
+
+			expect(result.sql).toBe("SELECT country, revenue FROM sales");
+			expect(result.modified.sqlChanged).toBe(false);
+			expect(result.modified.vizChanged).toBe(true);
+			expect(result.rows).toHaveLength(1);
+			expect(result.chart.vegaLiteSpec).toBeTruthy();
+		});
+
+		it("should modify chart with custom SQL", async () => {
+			sdk.attachDatabase("my-db", mockAdapter);
+
+			(mockAdapter.validate as any).mockResolvedValue(undefined);
+			(mockAdapter.execute as any).mockResolvedValue({
+				rows: [{ count: 5 }],
+				fields: ["count"],
+			});
+
+			mockFetch.mockResolvedValue({
+				ok: true,
+				text: async () =>
+					JSON.stringify({
+						chart: { mark: "number" },
+						notes: null,
+					}),
+			});
+
+			const customSql =
+				"SELECT COUNT(*) as count FROM orders WHERE status = 'active'";
+			const result = await sdk.modifyChart({
+				sql: "SELECT * FROM orders",
+				question: "count orders",
+				database: "my-db",
+				sqlModifications: {
+					customSql,
+				},
+			});
+
+			expect(result.sql).toBe(customSql);
+			expect(result.modified.sqlChanged).toBe(true);
+			expect(result.rows).toEqual([{ count: 5 }]);
+		});
+
+		it("should modify chart with SQL regeneration hints", async () => {
+			sdk.attachDatabase("my-db", mockAdapter);
+
+			(mockAdapter.validate as any).mockResolvedValue(undefined);
+			(mockAdapter.execute as any).mockResolvedValue({
+				rows: [{ month: "2024-01", revenue: 100 }],
+				fields: ["month", "revenue"],
+			});
+
+			mockFetch
+				.mockResolvedValueOnce({
+					ok: true,
+					text: async () =>
+						JSON.stringify({
+							success: true,
+							sql: "SELECT DATE_TRUNC('month', created_at), SUM(revenue) FROM orders GROUP BY 1",
+							params: [],
+							dialect: "postgres",
+							database: "my-db",
+						}),
+				})
+				.mockResolvedValueOnce({
+					ok: true,
+					text: async () =>
+						JSON.stringify({
+							chart: { mark: "line" },
+							notes: null,
+						}),
+				});
+
+			const result = await sdk.modifyChart({
+				sql: "SELECT * FROM orders",
+				question: "revenue over time",
+				database: "my-db",
+				sqlModifications: {
+					timeGranularity: "month",
+					dateRange: { from: "2024-01-01", to: "2024-12-31" },
+				},
+			});
+
+			expect(result.modified.sqlChanged).toBe(true);
+			expect(mockFetch).toHaveBeenCalledTimes(2);
+
+			// Check the query endpoint was called with modified question
+			const queryCall = mockFetch.mock.calls[0];
+			const queryBody = JSON.parse(queryCall[1].body);
+			expect(queryBody.question).toContain("month");
+			expect(queryBody.question).toContain("2024-01-01");
+		});
+
+		it("should handle combined SQL and viz modifications", async () => {
+			sdk.attachDatabase("my-db", mockAdapter);
+
+			(mockAdapter.validate as any).mockResolvedValue(undefined);
+			(mockAdapter.execute as any).mockResolvedValue({
+				rows: [{ week: "2024-W01", revenue: 500 }],
+				fields: ["week", "revenue"],
+			});
+
+			mockFetch
+				.mockResolvedValueOnce({
+					ok: true,
+					text: async () =>
+						JSON.stringify({
+							success: true,
+							sql: "SELECT week, SUM(revenue) FROM orders GROUP BY week",
+							params: [],
+							dialect: "postgres",
+							database: "my-db",
+						}),
+				})
+				.mockResolvedValueOnce({
+					ok: true,
+					text: async () =>
+						JSON.stringify({
+							chart: { mark: "area" },
+							notes: null,
+						}),
+				});
+
+			const result = await sdk.modifyChart({
+				sql: "SELECT * FROM orders",
+				question: "revenue",
+				database: "my-db",
+				sqlModifications: {
+					timeGranularity: "week",
+				},
+				vizModifications: {
+					chartType: "area",
+					stacking: "stacked",
+				},
+			});
+
+			expect(result.modified.sqlChanged).toBe(true);
+			expect(result.modified.vizChanged).toBe(true);
+
+			// Check encoding_hints were passed to chart endpoint
+			const chartCall = mockFetch.mock.calls[1];
+			const chartBody = JSON.parse(chartCall[1].body);
+			expect(chartBody.encoding_hints).toEqual({
+				chartType: "area",
+				stacking: "stacked",
+			});
 		});
 	});
 });

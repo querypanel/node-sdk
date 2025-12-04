@@ -114,6 +114,133 @@ if (response.chart.vegaLiteSpec) {
 const charts = await qp.listCharts({ tenantId: "tenant_123" });
 ```
 
+## Modifying Charts
+
+The `modifyChart()` method allows you to edit SQL and/or visualization settings, then re-execute and regenerate charts. It works with both fresh `ask()` responses and saved charts.
+
+### Changing Visualization Settings
+
+Modify chart type, axes, or series without regenerating SQL:
+
+```ts
+// Start with an ask() response
+const response = await qp.ask("revenue by country", {
+  tenantId: "tenant_123",
+  database: "analytics",
+});
+
+// Change to a bar chart with specific axis configuration
+const modified = await qp.modifyChart({
+  sql: response.sql,
+  question: "revenue by country",
+  database: "analytics",
+  vizModifications: {
+    chartType: "bar",
+    xAxis: { field: "country", label: "Country" },
+    yAxis: { field: "revenue", label: "Total Revenue", aggregate: "sum" },
+  },
+}, { tenantId: "tenant_123" });
+
+console.log(modified.chart); // New chart spec with bar visualization
+console.log(modified.modified.vizChanged); // true
+console.log(modified.modified.sqlChanged); // false
+```
+
+### Changing Time Granularity and Date Range
+
+These modifications trigger SQL regeneration:
+
+```ts
+// Change from daily to monthly aggregation
+const monthly = await qp.modifyChart({
+  sql: response.sql,
+  question: "revenue over time",
+  database: "analytics",
+  sqlModifications: {
+    timeGranularity: "month",
+    dateRange: { from: "2024-01-01", to: "2024-12-31" },
+  },
+}, { tenantId: "tenant_123" });
+
+console.log(monthly.sql); // New SQL with monthly GROUP BY
+console.log(monthly.modified.sqlChanged); // true
+```
+
+### Direct SQL Editing
+
+Provide custom SQL that will be executed directly:
+
+```ts
+const customized = await qp.modifyChart({
+  sql: response.sql,
+  question: "revenue by country",
+  database: "analytics",
+  sqlModifications: {
+    customSql: `
+      SELECT country, SUM(revenue) as total_revenue
+      FROM orders
+      WHERE status = 'completed' AND created_at > '2024-01-01'
+      GROUP BY country
+      ORDER BY total_revenue DESC
+      LIMIT 10
+    `,
+  },
+}, { tenantId: "tenant_123" });
+
+// Optionally save the modified chart
+if (customized.chart.vegaLiteSpec) {
+  await qp.createChart({
+    title: "Top 10 Countries by Revenue (Completed Orders)",
+    sql: customized.sql,
+    sql_params: customized.params,
+    vega_lite_spec: customized.chart.vegaLiteSpec,
+    target_db: customized.target_db,
+  }, { tenantId: "tenant_123" });
+}
+```
+
+### Combining SQL and Visualization Changes
+
+Apply both types of modifications in a single call:
+
+```ts
+const combined = await qp.modifyChart({
+  sql: response.sql,
+  question: "revenue over time",
+  database: "analytics",
+  sqlModifications: {
+    timeGranularity: "week",
+    additionalInstructions: "exclude refunded orders",
+  },
+  vizModifications: {
+    chartType: "area",
+    stacking: "stacked",
+  },
+}, { tenantId: "tenant_123" });
+```
+
+### Modifying Saved Charts
+
+Load a saved chart and modify it:
+
+```ts
+// Load a saved chart
+const savedChart = await qp.getChart("chart_id_123", {
+  tenantId: "tenant_123",
+});
+
+// Modify it
+const modified = await qp.modifyChart({
+  sql: savedChart.sql,
+  question: "original question", // Store this when saving charts
+  database: savedChart.target_db ?? "analytics",
+  params: savedChart.sql_params as Record<string, unknown>,
+  vizModifications: {
+    chartType: "line",
+  },
+}, { tenantId: "tenant_123" });
+```
+
 ## Building a Dashboard (Active Charts)
 
 While `createChart` and `listCharts` manage your **history** of saved queries, "Active Charts" are designed for building **dashboards**. You can "pin" a saved chart to a dashboard, control its order, and fetch it with live data in a single call.
