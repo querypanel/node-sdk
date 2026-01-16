@@ -1,59 +1,112 @@
-import crypto from 'node:crypto';
+import crypto from "node:crypto";
 import type { ApiClient } from "../core/client";
 import type { ParamRecord, QueryEngine } from "../core/query-engine";
+import { type QueryErrorCode, QueryPipelineError } from "../errors";
 import type { VizSpec } from "../types/vizspec";
 
+/**
+ * Context document returned by the query pipeline.
+ */
 export interface ContextDocument {
+	/** Optional source identifier for the document. */
 	source?: string;
+	/** Raw document content or excerpt. */
 	pageContent: string;
+	/** Additional metadata attached to the document. */
 	metadata?: Record<string, unknown>;
+	/** Optional relevance score from retrieval. */
 	score?: number;
 }
 
+/**
+ * Chart payload returned with query results.
+ */
 export interface ChartEnvelope {
+	/** Vega-Lite spec when specType is "vega-lite". */
 	vegaLiteSpec?: Record<string, unknown> | null;
+	/** VizSpec payload when specType is "vizspec". */
 	vizSpec?: VizSpec | null;
-	specType: 'vega-lite' | 'vizspec';
+	/** Chart specification type. */
+	specType: "vega-lite" | "vizspec";
+	/** Optional chart generation notes or errors. */
 	notes: string | null;
 }
 
+/**
+ * Configuration options for query generation.
+ */
 export interface AskOptions {
+	/** Tenant identifier for scoped access. */
 	tenantId?: string;
+	/** Optional user identifier for audit/telemetry. */
 	userId?: string;
+	/** Optional scopes to include in the auth token. */
 	scopes?: string[];
+	/** Override the default database name. */
 	database?: string;
+	/** Previous error message for retry context. */
 	lastError?: string;
+	/** Previous SQL statement for retry context. */
 	previousSql?: string;
+	/** Maximum number of retry attempts on execution failure. */
 	maxRetry?: number;
+	/** Maximum number of retries for chart generation. */
 	chartMaxRetries?: number;
-	chartType?: 'vega-lite' | 'vizspec'; // Choose chart generation method
+	/** Choose chart generation method. */
+	chartType?: "vega-lite" | "vizspec";
+	/**
+	 * QueryPanel session ID for context-aware follow-ups.
+	 * Use this to reuse a previously returned session for follow-up prompts.
+	 */
+	querypanelSessionId?: string;
 }
 
+/**
+ * Response returned after executing a query.
+ */
 export interface AskResponse {
+	/** Generated SQL statement. */
 	sql: string;
+	/** Parameter values for the generated SQL. */
 	params: ParamRecord;
+	/** Raw parameter metadata from the backend. */
 	paramMetadata: Array<Record<string, unknown>>;
+	/** Optional reasoning for SQL generation. */
 	rationale?: string;
+	/** SQL dialect selected by the backend. */
 	dialect: string;
+	/** Optional query identifier for traceability. */
 	queryId?: string;
+	/** Result rows returned by the query execution. */
 	rows: Array<Record<string, unknown>>;
+	/** Column names for returned rows. */
 	fields: string[];
+	/** Generated chart payload. */
 	chart: ChartEnvelope;
+	/** Optional context documents used for query generation. */
 	context?: ContextDocument[];
+	/** Number of attempts used for execution. */
 	attempts?: number;
+	/** Target database name resolved by the backend or engine. */
 	target_db?: string;
+	/** QueryPanel session ID for follow-up queries. */
+	querypanelSessionId?: string;
 }
 
 interface ServerQueryResponse {
 	success: boolean;
-	sql: string;
+	sql?: string;
 	params?: Array<Record<string, unknown>>;
-	dialect: string;
+	dialect?: string;
 	database?: string;
 	table?: string;
 	rationale?: string;
 	queryId?: string;
 	context?: ContextDocument[];
+	// Error fields
+	error?: string;
+	code?: QueryErrorCode;
+	details?: Record<string, unknown>;
 }
 
 interface ServerChartResponse {
@@ -79,6 +132,7 @@ export async function ask(
 ): Promise<AskResponse> {
 	const tenantId = resolveTenantId(client, options.tenantId);
 	const sessionId = crypto.randomUUID();
+	const querypanelSessionId = options.querypanelSessionId ?? sessionId;
 	const maxRetry = options.maxRetry ?? 0;
 	let attempt = 0;
 	let lastError: string | undefined = options.lastError;
@@ -103,10 +157,11 @@ export async function ask(
 			};
 		}
 
-		const queryResponse = await client.post<ServerQueryResponse>(
+		const queryResponse = await client.postWithHeaders<ServerQueryResponse>(
 			"/query",
 			{
 				question,
+				...(querypanelSessionId ? { session_id: querypanelSessionId } : {}),
 				...(lastError ? { last_error: lastError } : {}),
 				...(previousSql ? { previous_sql: previousSql } : {}),
 				...(options.maxRetry ? { max_retry: options.maxRetry } : {}),
@@ -120,9 +175,27 @@ export async function ask(
 			signal,
 			sessionId,
 		);
+		const responseSessionId =
+			queryResponse.headers.get("x-querypanel-session-id") ??
+			querypanelSessionId;
+
+		// Handle pipeline errors from server
+		if (!queryResponse.data.success) {
+			throw new QueryPipelineError(
+				queryResponse.data.error || "Query generation failed",
+				queryResponse.data.code || "INTERNAL_ERROR",
+				queryResponse.data.details,
+			);
+		}
+
+		const sql = queryResponse.data.sql;
+		const dialect = queryResponse.data.dialect;
+		if (!sql || !dialect) {
+			throw new Error("Query response missing required SQL or dialect");
+		}
 
 		const dbName =
-			queryResponse.database ??
+			queryResponse.data.database ??
 			options.database ??
 			queryEngine.getDefaultDatabase();
 		if (!dbName) {
@@ -132,15 +205,15 @@ export async function ask(
 		}
 
 		// Step 2: Map and validate parameters
-		const paramMetadata = Array.isArray(queryResponse.params)
-			? queryResponse.params
+		const paramMetadata = Array.isArray(queryResponse.data.params)
+			? queryResponse.data.params
 			: [];
 		const paramValues = queryEngine.mapGeneratedParams(paramMetadata);
 
 		// Step 3: Execute SQL with tenant isolation
 		try {
 			const execution = await queryEngine.validateAndExecute(
-				queryResponse.sql,
+				sql,
 				paramValues,
 				dbName,
 				tenantId,
@@ -148,25 +221,25 @@ export async function ask(
 			const rows = execution.rows ?? [];
 
 			// Step 4: Generate chart if we have data
-			const chartType = options.chartType ?? 'vega-lite'; // Default to vega-lite for backward compatibility
+			const chartType = options.chartType ?? "vega-lite"; // Default to vega-lite for backward compatibility
 			let chart: ChartEnvelope = {
 				specType: chartType,
 				notes: rows.length === 0 ? "Query returned no rows." : null,
 			};
 
 			if (rows.length > 0) {
-				if (chartType === 'vizspec') {
+				if (chartType === "vizspec") {
 					// Use new VizSpec generation
 					const vizspecResponse = await client.post<ServerVizSpecResponse>(
 						"/vizspec",
 						{
 							question,
-							sql: queryResponse.sql,
-							rationale: queryResponse.rationale,
+							sql,
+							rationale: queryResponse.data.rationale,
 							fields: execution.fields,
 							rows: anonymizeResults(rows),
 							max_retries: options.chartMaxRetries ?? 3,
-							query_id: queryResponse.queryId,
+							query_id: queryResponse.data.queryId,
 						},
 						tenantId,
 						options.userId,
@@ -177,7 +250,7 @@ export async function ask(
 
 					chart = {
 						vizSpec: vizspecResponse.spec,
-						specType: 'vizspec',
+						specType: "vizspec",
 						notes: vizspecResponse.notes,
 					};
 				} else {
@@ -186,12 +259,12 @@ export async function ask(
 						"/chart",
 						{
 							question,
-							sql: queryResponse.sql,
-							rationale: queryResponse.rationale,
+							sql,
+							rationale: queryResponse.data.rationale,
 							fields: execution.fields,
 							rows: anonymizeResults(rows),
 							max_retries: options.chartMaxRetries ?? 3,
-							query_id: queryResponse.queryId,
+							query_id: queryResponse.data.queryId,
 						},
 						tenantId,
 						options.userId,
@@ -207,25 +280,26 @@ export async function ask(
 									data: { values: rows },
 								}
 							: null,
-						specType: 'vega-lite',
+						specType: "vega-lite",
 						notes: chartResponse.notes,
 					};
 				}
 			}
 
 			return {
-				sql: queryResponse.sql,
+				sql,
 				params: paramValues,
 				paramMetadata,
-				rationale: queryResponse.rationale,
-				dialect: queryResponse.dialect,
-				queryId: queryResponse.queryId,
+				rationale: queryResponse.data.rationale,
+				dialect,
+				queryId: queryResponse.data.queryId,
 				rows,
 				fields: execution.fields,
 				chart,
-				context: queryResponse.context,
+				context: queryResponse.data.context,
 				attempts: attempt + 1,
 				target_db: dbName,
+				querypanelSessionId: responseSessionId ?? undefined,
 			};
 		} catch (error) {
 			attempt++;
@@ -237,7 +311,7 @@ export async function ask(
 
 			// Save error and SQL for next retry
 			lastError = error instanceof Error ? error.message : String(error);
-			previousSql = queryResponse.sql;
+			previousSql = queryResponse.data.sql ?? previousSql;
 
 			// Log retry attempt
 			console.warn(

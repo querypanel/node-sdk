@@ -133,15 +133,10 @@ export async function listCharts(
 
 	if (options?.includeData) {
 		response.data = await Promise.all(
-			response.data.map(async (chart) => ({
-				...chart,
-				vega_lite_spec: {
-					...chart.vega_lite_spec,
-					data: {
-						values: await executeChartQuery(queryEngine, chart, tenantId),
-					},
-				},
-			})),
+			response.data.map(async (chart) => {
+				const rows = await executeChartQuery(queryEngine, chart, tenantId);
+				return hydrateChartWithData(chart, rows);
+			}),
 		);
 	}
 
@@ -164,15 +159,8 @@ export async function getChart(
 		signal,
 	);
 
-	return {
-		...chart,
-		vega_lite_spec: {
-			...chart.vega_lite_spec,
-			data: {
-				values: await executeChartQuery(queryEngine, chart, tenantId),
-			},
-		},
-	};
+	const rows = await executeChartQuery(queryEngine, chart, tenantId);
+	return hydrateChartWithData(chart, rows);
 }
 
 export async function updateChart(
@@ -241,4 +229,42 @@ async function executeChartQuery(
 		console.warn(`Failed to execute chart query: ${error}`);
 		return [];
 	}
+}
+
+/**
+ * Hydrates a chart with query result data based on its spec type.
+ * - For vega-lite: injects data as `data.values`
+ * - For vizspec: injects data as `data.values` while preserving `data.sourceId`
+ */
+function hydrateChartWithData(
+	chart: SdkChart,
+	rows: Record<string, unknown>[],
+): SdkChart {
+	const spec = chart.vega_lite_spec;
+
+	if (chart.spec_type === "vizspec") {
+		// VizSpec format: preserve sourceId and add values
+		const existingData = (spec.data as Record<string, unknown>) ?? {};
+		return {
+			...chart,
+			vega_lite_spec: {
+				...spec,
+				data: {
+					...existingData,
+					values: rows,
+				},
+			},
+		};
+	}
+
+	// Vega-Lite format: standard data injection
+	return {
+		...chart,
+		vega_lite_spec: {
+			...spec,
+			data: {
+				values: rows,
+			},
+		},
+	};
 }

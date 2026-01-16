@@ -11,16 +11,22 @@ import {
 import type { DatabaseAdapter, DatabaseDialect } from "./adapters/types";
 import { ApiClient } from "./core/client";
 import { type DatabaseMetadata, QueryEngine } from "./core/query-engine";
+import { QueryErrorCode, QueryPipelineError } from "./errors";
 import * as activeChartsRoute from "./routes/active-charts";
 import * as chartsRoute from "./routes/charts";
 import * as ingestRoute from "./routes/ingest";
 import * as modifyRoute from "./routes/modify";
 import * as queryRoute from "./routes/query";
+import * as sessionsRoute from "./routes/sessions";
 import * as vizspecRoute from "./routes/vizspec";
 import type { SchemaIntrospection } from "./schema/types";
 
 // Re-export all public types
 export { ClickHouseAdapter, PostgresAdapter };
+
+// Re-export error types
+export type { QueryErrorCode as QueryErrorCodeType } from "./errors";
+export { QueryErrorCode, QueryPipelineError };
 
 export type {
 	ClickHouseAdapterOptions,
@@ -73,6 +79,13 @@ export type {
 } from "./routes/query";
 // Re-export anonymizeResults utility
 export { anonymizeResults } from "./routes/query";
+export type {
+	SdkSession,
+	SdkSessionTurn,
+	SessionGetOptions,
+	SessionListOptions,
+	SessionUpdateInput,
+} from "./routes/sessions";
 export type {
 	VizSpecGenerateInput,
 	VizSpecGenerateOptions,
@@ -259,6 +272,7 @@ export class QueryPanelSdkAPI {
 	 * console.log(result.sql);      // Generated SQL
 	 * console.log(result.rows);     // Query results
 	 * console.log(result.chart);    // Vega-Lite chart spec
+	 * console.log(result.querypanelSessionId); // Use for follow-ups
 	 *
 	 * // With automatic SQL repair on failure
 	 * const result = await qp.ask("Show monthly trends", {
@@ -459,6 +473,113 @@ export class QueryPanelSdkAPI {
 			options,
 			signal,
 		);
+	}
+
+	// Session history CRUD operations
+
+	/**
+	 * Lists query sessions with pagination and filtering.
+	 *
+	 * @param options - Filtering, pagination, and sort options
+	 * @param signal - Optional AbortSignal for cancellation
+	 * @returns Paginated list of sessions
+	 *
+	 * @example
+	 * ```typescript
+	 * const sessions = await qp.listSessions({
+	 *   tenantId: "tenant_123",
+	 *   pagination: { page: 1, limit: 20 },
+	 *   sortBy: "updated_at",
+	 * });
+	 * ```
+	 */
+	async listSessions(
+		options?: sessionsRoute.SessionListOptions,
+		signal?: AbortSignal,
+	): Promise<sessionsRoute.PaginatedResponse<sessionsRoute.SdkSession>> {
+		return await sessionsRoute.listSessions(this.client, options, signal);
+	}
+
+	/**
+	 * Retrieves a session by session_id with optional turn history.
+	 *
+	 * @param sessionId - QueryPanel session identifier used in ask()
+	 * @param options - Tenant, user, scopes, and includeTurns flag
+	 * @param signal - Optional AbortSignal for cancellation
+	 * @returns Session metadata with optional turns
+	 *
+	 * @example
+	 * ```typescript
+	 * const session = await qp.getSession("session_123", {
+	 *   tenantId: "tenant_123",
+	 *   includeTurns: true,
+	 * });
+	 * ```
+	 */
+	async getSession(
+		sessionId: string,
+		options?: sessionsRoute.SessionGetOptions,
+		signal?: AbortSignal,
+	): Promise<sessionsRoute.SdkSession> {
+		return await sessionsRoute.getSession(
+			this.client,
+			sessionId,
+			options,
+			signal,
+		);
+	}
+
+	/**
+	 * Updates session metadata (title).
+	 *
+	 * @param sessionId - QueryPanel session identifier to update
+	 * @param body - Fields to update
+	 * @param options - Tenant, user, and scope options
+	 * @param signal - Optional AbortSignal for cancellation
+	 * @returns Updated session
+	 *
+	 * @example
+	 * ```typescript
+	 * const updated = await qp.updateSession(
+	 *   "session_123",
+	 *   { title: "Q4 Revenue Analysis" },
+	 *   { tenantId: "tenant_123" },
+	 * );
+	 * ```
+	 */
+	async updateSession(
+		sessionId: string,
+		body: sessionsRoute.SessionUpdateInput,
+		options?: { tenantId?: string; userId?: string; scopes?: string[] },
+		signal?: AbortSignal,
+	): Promise<sessionsRoute.SdkSession> {
+		return await sessionsRoute.updateSession(
+			this.client,
+			sessionId,
+			body,
+			options,
+			signal,
+		);
+	}
+
+	/**
+	 * Deletes a session and its turn history.
+	 *
+	 * @param sessionId - QueryPanel session identifier to delete
+	 * @param options - Tenant, user, and scope options
+	 * @param signal - Optional AbortSignal for cancellation
+	 *
+	 * @example
+	 * ```typescript
+	 * await qp.deleteSession("session_123", { tenantId: "tenant_123" });
+	 * ```
+	 */
+	async deleteSession(
+		sessionId: string,
+		options?: { tenantId?: string; userId?: string; scopes?: string[] },
+		signal?: AbortSignal,
+	): Promise<void> {
+		await sessionsRoute.deleteSession(this.client, sessionId, options, signal);
 	}
 
 	/**

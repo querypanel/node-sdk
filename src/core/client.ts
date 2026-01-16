@@ -115,6 +115,31 @@ export class ApiClient {
 		});
 	}
 
+	async postWithHeaders<T>(
+		path: string,
+		body: unknown,
+		tenantId: string,
+		userId?: string,
+		scopes?: string[],
+		signal?: AbortSignal,
+		sessionId?: string,
+	): Promise<{ data: T; headers: Headers }> {
+		const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
+			method: "POST",
+			headers: await this.buildHeaders(
+				tenantId,
+				userId,
+				scopes,
+				true,
+				sessionId,
+			),
+			body: JSON.stringify(body ?? {}),
+			signal,
+		});
+		const data = await this.parseResponse<T>(response);
+		return { data, headers: response.headers };
+	}
+
 	async put<T>(
 		path: string,
 		body: unknown,
@@ -126,6 +151,29 @@ export class ApiClient {
 	): Promise<T> {
 		return await this.request<T>(path, {
 			method: "PUT",
+			headers: await this.buildHeaders(
+				tenantId,
+				userId,
+				scopes,
+				true,
+				sessionId,
+			),
+			body: JSON.stringify(body ?? {}),
+			signal,
+		});
+	}
+
+	async patch<T>(
+		path: string,
+		body: unknown,
+		tenantId: string,
+		userId?: string,
+		scopes?: string[],
+		signal?: AbortSignal,
+		sessionId?: string,
+	): Promise<T> {
+		return await this.request<T>(path, {
+			method: "PATCH",
 			headers: await this.buildHeaders(
 				tenantId,
 				userId,
@@ -161,6 +209,10 @@ export class ApiClient {
 
 	private async request<T>(path: string, init: RequestInit): Promise<T> {
 		const response = await this.fetchImpl(`${this.baseUrl}${path}`, init);
+		return await this.parseResponse<T>(response);
+	}
+
+	private async parseResponse<T>(response: Response): Promise<T> {
 		const text = await response.text();
 		let json: any;
 		try {
