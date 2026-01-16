@@ -80,6 +80,54 @@ console.table(response.rows);
 console.log(response.chart.vegaLiteSpec);
 ```
 
+## Session History & Context-Aware Queries
+
+The SDK can link related questions into a session so follow-ups like “filter that to Europe” use prior context. The backend generates a QueryPanel session ID for every query and returns it in the response so you can reuse it.
+
+```ts
+const first = await qp.ask("Revenue by country", {
+  tenantId: "tenant_123",
+  database: "analytics",
+});
+
+const querypanelSessionId = first.querypanelSessionId;
+
+const followUp = await qp.ask("Now filter that to Europe", {
+  tenantId: "tenant_123",
+  database: "analytics",
+  querypanelSessionId, // same QueryPanel session keeps context
+});
+
+console.log(followUp.sql);
+```
+
+### Managing Session History
+
+```ts
+// List sessions
+const sessions = await qp.listSessions({
+  tenantId: "tenant_123",
+  pagination: { page: 1, limit: 20 },
+  sortBy: "updated_at",
+});
+
+// Get a session with its turns
+const session = await qp.getSession("session_abc123", {
+  tenantId: "tenant_123",
+  includeTurns: true,
+});
+
+// Update session title
+await qp.updateSession(
+  "session_abc123",
+  { title: "Q4 Revenue Analysis" },
+  { tenantId: "tenant_123" },
+);
+
+// Delete a session
+await qp.deleteSession("session_abc123", { tenantId: "tenant_123" });
+```
+
 ## Saving & Managing Charts
 
 The SDK allows you to save generated charts to the QueryPanel system.
