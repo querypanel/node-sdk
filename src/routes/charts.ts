@@ -4,6 +4,7 @@ import type { ParamRecord, QueryEngine } from "../core/query-engine";
 export interface SdkChart {
 	id: string;
 	title: string;
+	prompt?: string | null;
 	description: string | null;
 	sql: string;
 	sql_params: Record<string, unknown> | null;
@@ -21,6 +22,7 @@ export interface SdkChart {
 
 export interface ChartCreateInput {
 	title: string;
+	prompt?: string;
 	description?: string;
 	sql: string;
 	sql_params?: Record<string, unknown>;
@@ -32,6 +34,7 @@ export interface ChartCreateInput {
 
 export interface ChartUpdateInput {
 	title?: string;
+	prompt?: string;
 	description?: string;
 	sql?: string;
 	sql_params?: Record<string, unknown>;

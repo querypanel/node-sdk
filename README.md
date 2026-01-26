@@ -145,6 +145,7 @@ if (response.chart.vegaLiteSpec) {
   // 2. Save the chart (only stores SQL + metadata, no data)
   const savedChart = await qp.createChart({
     title: "Revenue by Country",
+    prompt: "Show revenue by country",
     sql: response.sql,
     sql_params: response.params,
     vega_lite_spec: response.chart.vegaLiteSpec,
@@ -161,6 +162,9 @@ if (response.chart.vegaLiteSpec) {
 // 3. List saved charts (History)
 const charts = await qp.listCharts({ tenantId: "tenant_123" });
 ```
+
+Saved charts now include the original `prompt` so you can show the question
+alongside chart history or reuse it in follow-up workflows.
 
 ## Modifying Charts
 
@@ -280,7 +284,7 @@ const savedChart = await qp.getChart("chart_id_123", {
 // Modify it
 const modified = await qp.modifyChart({
   sql: savedChart.sql,
-  question: "original question", // Store this when saving charts
+  question: savedChart.prompt ?? "original question",
   database: savedChart.target_db ?? "analytics",
   params: savedChart.sql_params as Record<string, unknown>,
   vizModifications: {
