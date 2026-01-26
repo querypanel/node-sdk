@@ -4,6 +4,7 @@ import { anonymizeResults, ask } from "./query";
 describe("routes/query", () => {
 	let mockClient: {
 		post: Mock;
+		postWithHeaders: Mock;
 		getDefaultTenantId: Mock;
 	};
 	let mockQueryEngine: {
@@ -16,6 +17,7 @@ describe("routes/query", () => {
 	beforeEach(() => {
 		mockClient = {
 			post: vi.fn(),
+			postWithHeaders: vi.fn(),
 			getDefaultTenantId: vi.fn(() => "default-tenant"),
 		};
 
@@ -65,9 +67,11 @@ describe("routes/query", () => {
 				notes: null,
 			};
 
-			mockClient.post
-				.mockResolvedValueOnce(queryResponse)
-				.mockResolvedValueOnce(chartResponse);
+			mockClient.postWithHeaders.mockResolvedValueOnce({
+				data: queryResponse,
+				headers: { get: vi.fn(() => null) },
+			});
+			mockClient.post.mockResolvedValueOnce(chartResponse);
 
 			mockQueryEngine.validateAndExecute.mockResolvedValue(executionResult);
 
@@ -88,11 +92,14 @@ describe("routes/query", () => {
 		});
 
 		it("should use default tenant ID if not provided", async () => {
-			mockClient.post.mockResolvedValueOnce({
-				success: true,
-				sql: "SELECT 1",
-				params: [],
-				dialect: "postgres",
+			mockClient.postWithHeaders.mockResolvedValueOnce({
+				data: {
+					success: true,
+					sql: "SELECT 1",
+					params: [],
+					dialect: "postgres",
+				},
+				headers: { get: vi.fn(() => null) },
 			});
 
 			mockQueryEngine.validateAndExecute.mockResolvedValue({
@@ -103,7 +110,7 @@ describe("routes/query", () => {
 			await ask(mockClient, mockQueryEngine, "test", {});
 
 			expect(mockClient.getDefaultTenantId).toHaveBeenCalled();
-			const call = mockClient.post.mock.calls[0];
+			const call = mockClient.postWithHeaders.mock.calls[0];
 			expect(call[0]).toBe("/query");
 			expect(call[2]).toBe("default-tenant"); // tenantId
 		});
@@ -117,11 +124,14 @@ describe("routes/query", () => {
 		});
 
 		it("should use database from options if provided", async () => {
-			mockClient.post.mockResolvedValueOnce({
-				success: true,
-				sql: "SELECT 1",
-				params: [],
-				dialect: "postgres",
+			mockClient.postWithHeaders.mockResolvedValueOnce({
+				data: {
+					success: true,
+					sql: "SELECT 1",
+					params: [],
+					dialect: "postgres",
+				},
+				headers: { get: vi.fn(() => null) },
 			});
 
 			mockQueryEngine.validateAndExecute.mockResolvedValue({
@@ -162,10 +172,16 @@ describe("routes/query", () => {
 				notes: null,
 			};
 
-			mockClient.post
-				.mockResolvedValueOnce(queryResponse1)
-				.mockResolvedValueOnce(queryResponse2)
-				.mockResolvedValueOnce(chartResponse);
+			mockClient.postWithHeaders
+				.mockResolvedValueOnce({
+					data: queryResponse1,
+					headers: { get: vi.fn(() => null) },
+				})
+				.mockResolvedValueOnce({
+					data: queryResponse2,
+					headers: { get: vi.fn(() => null) },
+				});
+			mockClient.post.mockResolvedValueOnce(chartResponse);
 
 			mockQueryEngine.validateAndExecute
 				.mockRejectedValueOnce(new Error("Table does not exist"))
@@ -179,18 +195,32 @@ describe("routes/query", () => {
 				maxRetry: 1,
 			});
 
-			expect(mockClient.post).toHaveBeenCalledTimes(3); // 2 queries + 1 chart
+			expect(mockClient.postWithHeaders).toHaveBeenCalledTimes(2);
+			expect(mockClient.post).toHaveBeenCalledTimes(1);
 			expect(result.sql).toBe("SELECT * FROM users");
 			expect(result.attempts).toBe(2);
 		});
 
 		it("should include error context in retry request", async () => {
-			mockClient.post.mockResolvedValue({
-				success: true,
-				sql: "SELECT * FROM users",
-				params: [],
-				dialect: "postgres",
-			});
+			mockClient.postWithHeaders
+				.mockResolvedValueOnce({
+					data: {
+						success: true,
+						sql: "SELECT * FROM users",
+						params: [],
+						dialect: "postgres",
+					},
+					headers: { get: vi.fn(() => null) },
+				})
+				.mockResolvedValueOnce({
+					data: {
+						success: true,
+						sql: "SELECT * FROM users",
+						params: [],
+						dialect: "postgres",
+					},
+					headers: { get: vi.fn(() => null) },
+				});
 
 			mockQueryEngine.validateAndExecute
 				.mockRejectedValueOnce(new Error("Syntax error"))
@@ -204,7 +234,7 @@ describe("routes/query", () => {
 				maxRetry: 1,
 			});
 
-			const secondCall = mockClient.post.mock.calls[1];
+			const secondCall = mockClient.postWithHeaders.mock.calls[1];
 			expect(secondCall[1]).toMatchObject({
 				question: "test",
 				last_error: "Syntax error",
@@ -213,11 +243,14 @@ describe("routes/query", () => {
 		});
 
 		it("should throw error after exhausting retries", async () => {
-			mockClient.post.mockResolvedValue({
-				success: true,
-				sql: "INVALID SQL",
-				params: [],
-				dialect: "postgres",
+			mockClient.postWithHeaders.mockResolvedValue({
+				data: {
+					success: true,
+					sql: "INVALID SQL",
+					params: [],
+					dialect: "postgres",
+				},
+				headers: { get: vi.fn(() => null) },
 			});
 
 			mockQueryEngine.validateAndExecute.mockRejectedValue(
@@ -231,15 +264,18 @@ describe("routes/query", () => {
 				}),
 			).rejects.toThrow("Persistent error");
 
-			expect(mockClient.post).toHaveBeenCalledTimes(3); // Initial + 2 retries
+			expect(mockClient.postWithHeaders).toHaveBeenCalledTimes(3); // Initial + 2 retries
 		});
 
 		it("should not generate chart when no rows returned", async () => {
-			mockClient.post.mockResolvedValueOnce({
-				success: true,
-				sql: "DELETE FROM users",
-				params: [],
-				dialect: "postgres",
+			mockClient.postWithHeaders.mockResolvedValueOnce({
+				data: {
+					success: true,
+					sql: "DELETE FROM users",
+					params: [],
+					dialect: "postgres",
+				},
+				headers: { get: vi.fn(() => null) },
 			});
 
 			mockQueryEngine.validateAndExecute.mockResolvedValue({
@@ -253,22 +289,26 @@ describe("routes/query", () => {
 
 			expect(result.chart.vegaLiteSpec).toBeUndefined();
 			expect(result.chart.notes).toBe("Query returned no rows.");
-			expect(mockClient.post).toHaveBeenCalledTimes(1); // No chart request
+			expect(mockClient.postWithHeaders).toHaveBeenCalledTimes(1);
+			expect(mockClient.post).not.toHaveBeenCalled();
 		});
 
 		it("should pass through query context", async () => {
-			mockClient.post.mockResolvedValueOnce({
-				success: true,
-				sql: "SELECT 1",
-				params: [],
-				dialect: "postgres",
-				context: [
-					{
-						source: "docs",
-						pageContent: "Example",
-						score: 0.9,
-					},
-				],
+			mockClient.postWithHeaders.mockResolvedValueOnce({
+				data: {
+					success: true,
+					sql: "SELECT 1",
+					params: [],
+					dialect: "postgres",
+					context: [
+						{
+							source: "docs",
+							pageContent: "Example",
+							score: 0.9,
+						},
+					],
+				},
+				headers: { get: vi.fn(() => null) },
 			});
 
 			mockQueryEngine.validateAndExecute.mockResolvedValue({
@@ -289,17 +329,19 @@ describe("routes/query", () => {
 		});
 
 		it("should use custom chart retry count", async () => {
-			mockClient.post
-				.mockResolvedValueOnce({
+			mockClient.postWithHeaders.mockResolvedValueOnce({
+				data: {
 					success: true,
 					sql: "SELECT 1",
 					params: [],
 					dialect: "postgres",
-				})
-				.mockResolvedValueOnce({
-					chart: { mark: "bar" },
-					notes: null,
-				});
+				},
+				headers: { get: vi.fn(() => null) },
+			});
+			mockClient.post.mockResolvedValueOnce({
+				chart: { mark: "bar" },
+				notes: null,
+			});
 
 			mockQueryEngine.validateAndExecute.mockResolvedValue({
 				rows: [{ id: 1 }],
@@ -311,7 +353,7 @@ describe("routes/query", () => {
 				chartMaxRetries: 5,
 			});
 
-			const chartCall = mockClient.post.mock.calls[1];
+			const chartCall = mockClient.post.mock.calls[0];
 			expect(chartCall[1]).toMatchObject({
 				max_retries: 5,
 			});

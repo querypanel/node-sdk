@@ -201,6 +201,7 @@ describe("QueryPanelSdkAPI", () => {
 			mockFetch
 				.mockResolvedValueOnce({
 					ok: true,
+					headers: { get: vi.fn(() => null) },
 					text: async () =>
 						JSON.stringify({
 							success: true,
@@ -212,6 +213,7 @@ describe("QueryPanelSdkAPI", () => {
 				})
 				.mockResolvedValueOnce({
 					ok: true,
+					headers: { get: vi.fn(() => null) },
 					text: async () =>
 						JSON.stringify({
 							chart: { mark: "table" },
@@ -240,6 +242,7 @@ describe("QueryPanelSdkAPI", () => {
 
 			mockFetch.mockResolvedValue({
 				ok: true,
+				headers: { get: vi.fn(() => null) },
 				text: async () =>
 					JSON.stringify({
 						success: true,
