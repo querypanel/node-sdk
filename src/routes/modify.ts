@@ -9,6 +9,7 @@ import type {
 	TimeUnit,
 	ValueFormat,
 	VizSpec,
+	VizSpecKind,
 } from "../types/vizspec";
 import {
 	type AskResponse,
@@ -97,6 +98,8 @@ export interface SqlModifications {
  * These changes only affect how the chart is rendered.
  */
 export interface VizModifications {
+	/** Change the VizSpec kind (chart, table, metric). Applies to vizspec only. */
+	kind?: VizSpecKind;
 	/** Change the chart type (line, bar, area, scatter, pie) */
 	chartType?: ChartType;
 
@@ -267,6 +270,10 @@ function buildVizHints(
 ): Record<string, unknown> {
 	const hints: Record<string, unknown> = {};
 
+	if (modifications.kind) {
+		hints.kind = modifications.kind;
+	}
+
 	if (modifications.chartType) {
 		hints.chartType = modifications.chartType;
 	}
@@ -292,6 +299,20 @@ function buildVizHints(
 	}
 
 	return hints;
+}
+
+/**
+ * Remove VizSpec-only hints for Vega-Lite chart generation.
+ */
+function stripVizSpecOnlyHints(
+	hints: Record<string, unknown>,
+): Record<string, unknown> {
+	if (!("kind" in hints)) {
+		return hints;
+	}
+
+	const { kind: _kind, ...rest } = hints as { kind?: unknown };
+	return rest;
 }
 
 /**
@@ -460,6 +481,8 @@ export async function modifyChart(
 	if (rows.length > 0) {
 		// Build viz hints if modifications provided
 		const vizHints = hasVizMods ? buildVizHints(input.vizModifications!) : {};
+		const vizHintsForChart =
+			chartType === "vizspec" ? vizHints : stripVizSpecOnlyHints(vizHints);
 
 		if (chartType === "vizspec") {
 			const vizspecResponse = await client.post<ServerVizSpecResponse>(
@@ -473,7 +496,7 @@ export async function modifyChart(
 					max_retries: options?.chartMaxRetries ?? 3,
 					query_id: queryId,
 					// Include viz hints for the chart generator
-					...(hasVizMods ? { encoding_hints: vizHints } : {}),
+					...(hasVizMods ? { encoding_hints: vizHintsForChart } : {}),
 				},
 				tenantId,
 				options?.userId,
@@ -499,7 +522,7 @@ export async function modifyChart(
 					max_retries: options?.chartMaxRetries ?? 3,
 					query_id: queryId,
 					// Include viz hints for the chart generator
-					...(hasVizMods ? { encoding_hints: vizHints } : {}),
+					...(hasVizMods ? { encoding_hints: vizHintsForChart } : {}),
 				},
 				tenantId,
 				options?.userId,

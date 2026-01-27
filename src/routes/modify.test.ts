@@ -530,6 +530,53 @@ describe("routes/modify", () => {
 				expect(result.chart.specType).toBe("vizspec");
 				expect(result.chart.vizSpec).toBeDefined();
 			});
+
+			it("should pass kind hints to /vizspec endpoint", async () => {
+				mockQueryEngine.validateAndExecute.mockResolvedValue({
+					rows: [{ country: "US", revenue: 1000 }],
+					fields: ["country", "revenue"],
+				});
+
+				mockClient.post.mockResolvedValueOnce({
+					spec: {
+						version: "1.0",
+						kind: "table",
+						encoding: {
+							columns: [{ field: "country" }, { field: "revenue" }],
+						},
+					},
+					notes: null,
+				});
+
+				await modifyChart(
+					mockClient,
+					mockQueryEngine,
+					{
+						sql: "SELECT country, revenue FROM sales",
+						question: "revenue by country",
+						database: "test-db",
+						vizModifications: {
+							kind: "table",
+						},
+					},
+					{
+						tenantId: "tenant-1",
+						chartType: "vizspec",
+					},
+				);
+
+				expect(mockClient.post).toHaveBeenCalledWith(
+					"/vizspec",
+					expect.objectContaining({
+						encoding_hints: { kind: "table" },
+					}),
+					expect.any(String),
+					undefined,
+					undefined,
+					undefined,
+					expect.any(String),
+				);
+			});
 		});
 
 		describe("edge cases", () => {
