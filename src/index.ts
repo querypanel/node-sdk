@@ -98,6 +98,7 @@ export type {
 	ChartEncoding,
 	ChartSpec,
 	ChartType,
+	EncodingHints,
 	FieldRef,
 	FieldType,
 	MetricEncoding,
@@ -108,7 +109,11 @@ export type {
 	TableEncoding,
 	TableSpec,
 	TimeUnit,
+	ValueFormat,
 	VizSpec,
+	VizSpecGeneratorInput,
+	VizSpecKind,
+	VizSpecResult,
 } from "./types/vizspec";
 
 /**

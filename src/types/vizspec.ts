@@ -67,7 +67,13 @@ export type VizSpecKind = VizSpecBase["kind"];
 // Chart Spec
 // ============================================================================
 
-export type ChartType = 'line' | 'bar' | 'area' | 'scatter' | 'pie';
+export type ChartType =
+  | 'line'
+  | 'bar'    // horizontal bars (categorical on Y-axis)
+  | 'column' // vertical bars (categorical on X-axis)
+  | 'area'
+  | 'scatter'
+  | 'pie';
 
 export type StackingMode = 'none' | 'stacked' | 'percent';
 
@@ -152,3 +158,54 @@ export interface MetricSpec extends VizSpecBase {
 // ============================================================================
 
 export type VizSpec = ChartSpec | TableSpec | MetricSpec;
+
+// ============================================================================
+// Service Input/Output Types
+// ============================================================================
+
+/**
+ * Encoding hints for vizspec modifications.
+ * These hints guide the LLM to generate specific visualization configurations.
+ */
+export interface EncodingHints {
+  /** Preferred vizspec kind (chart, table, metric) */
+  kind?: 'chart' | 'table' | 'metric';
+  /** Preferred chart type (bar, line, area, scatter, pie) */
+  chartType?: ChartType;
+  /** X axis field configuration */
+  xAxis?: AxisField;
+  /** Y axis field configuration (single or multiple) */
+  yAxis?: AxisField | AxisField[];
+  /** Series/color field for multi-series charts */
+  series?: FieldRef;
+  /** Stacking mode for multi-series */
+  stacking?: StackingMode;
+  /** Maximum rows to display */
+  limit?: number;
+}
+
+/**
+ * Input for vizspec generator service
+ */
+export interface VizSpecGeneratorInput {
+  question: string;
+  sql: string;
+  rationale?: string;
+  fields: string[];
+  rows: Array<Record<string, unknown>>;
+  maxRetries?: number;
+  queryId?: string;
+  /**
+   * Optional encoding hints for visualization modification.
+   * When provided, these guide the LLM to generate specific visualization configurations.
+   */
+  encodingHints?: EncodingHints;
+}
+
+/**
+ * Output from vizspec generator service
+ */
+export interface VizSpecResult {
+  spec: VizSpec;
+  notes: string | null;
+}

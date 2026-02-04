@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import type { ApiClient } from "../core/client";
-import type { VizSpec } from "../types/vizspec";
+import type { EncodingHints, VizSpec } from "../types/vizspec";
 
 export interface VizSpecGenerateInput {
   question: string;
@@ -10,6 +10,11 @@ export interface VizSpecGenerateInput {
   rows: Array<Record<string, unknown>>;
   max_retries?: number;
   query_id?: string;
+  /**
+   * Optional encoding hints for visualization modification.
+   * When provided, these guide the LLM to generate specific visualization configurations.
+   */
+  encoding_hints?: EncodingHints;
 }
 
 export interface VizSpecGenerateOptions {
@@ -47,6 +52,7 @@ export async function generateVizSpec(
       rows: input.rows,
       max_retries: options?.maxRetries ?? input.max_retries ?? 3,
       query_id: input.query_id,
+      encoding_hints: input.encoding_hints,
     },
     tenantId,
     options?.userId,
