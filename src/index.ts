@@ -14,6 +14,7 @@ import { type DatabaseMetadata, QueryEngine } from "./core/query-engine";
 import { QueryErrorCode, QueryPipelineError } from "./errors";
 import * as activeChartsRoute from "./routes/active-charts";
 import * as chartsRoute from "./routes/charts";
+import * as dashboardsRoute from "./routes/dashboards";
 import * as ingestRoute from "./routes/ingest";
 import * as modifyRoute from "./routes/modify";
 import * as queryRoute from "./routes/query";
@@ -56,6 +57,15 @@ export type {
 	PaginationQuery,
 	SdkChart,
 } from "./routes/charts";
+
+export type {
+	DashboardCreateInput,
+	DashboardForkInput,
+	DashboardForkUpdateInput,
+	DashboardListOptions,
+	DashboardUpdateInput,
+	SdkDashboard,
+} from "./routes/dashboards";
 // Re-export route types
 export type {
 	IngestResponse,
@@ -828,5 +838,360 @@ export class QueryPanelSdkAPI {
 		signal?: AbortSignal,
 	): Promise<void> {
 		await activeChartsRoute.deleteActiveChart(this.client, id, options, signal);
+	}
+
+	// Dashboard CRUD operations
+
+	/**
+	 * Creates a new dashboard with BlockNote content.
+	 *
+	 * @param body - Dashboard configuration including name and BlockNote content
+	 * @param options - Tenant, user, and scope options
+	 * @param signal - Optional AbortSignal for cancellation
+	 * @returns Created dashboard
+	 *
+	 * @example
+	 * ```typescript
+	 * const dashboard = await qp.createDashboard({
+	 *   name: "Sales Dashboard",
+	 *   description: "Monthly sales metrics",
+	 *   content_json: blockNoteContent,
+	 *   editor_type: "blocknote",
+	 * }, { tenantId: "tenant_123" });
+	 * ```
+	 */
+	async createDashboard(
+		body: dashboardsRoute.DashboardCreateInput,
+		options?: { tenantId?: string; userId?: string; scopes?: string[] },
+		signal?: AbortSignal,
+	): Promise<dashboardsRoute.SdkDashboard> {
+		return await dashboardsRoute.createDashboard(
+			this.client,
+			body,
+			options,
+			signal,
+		);
+	}
+
+	/**
+	 * Lists dashboards with pagination and filtering.
+	 *
+	 * @param options - Filtering and pagination options
+	 * @param signal - Optional AbortSignal for cancellation
+	 * @returns Paginated list of dashboards
+	 *
+	 * @example
+	 * ```typescript
+	 * const dashboards = await qp.listDashboards({
+	 *   tenantId: "tenant_123",
+	 *   status: "deployed",
+	 *   pagination: { page: 1, limit: 10 },
+	 * });
+	 * ```
+	 */
+	async listDashboards(
+		options?: dashboardsRoute.DashboardListOptions,
+		signal?: AbortSignal,
+	): Promise<chartsRoute.PaginatedResponse<dashboardsRoute.SdkDashboard>> {
+		return await dashboardsRoute.listDashboards(this.client, options, signal);
+	}
+
+	/**
+	 * Gets a dashboard by ID.
+	 *
+	 * @param id - Dashboard ID
+	 * @param options - Tenant, user, and scope options
+	 * @param signal - Optional AbortSignal for cancellation
+	 * @returns Dashboard details
+	 *
+	 * @example
+	 * ```typescript
+	 * const dashboard = await qp.getDashboard("dash_123", {
+	 *   tenantId: "tenant_123",
+	 * });
+	 * ```
+	 */
+	async getDashboard(
+		id: string,
+		options?: { tenantId?: string; userId?: string; scopes?: string[] },
+		signal?: AbortSignal,
+	): Promise<dashboardsRoute.SdkDashboard> {
+		return await dashboardsRoute.getDashboard(
+			this.client,
+			id,
+			options,
+			signal,
+		);
+	}
+
+	/**
+	 * Gets a dashboard for a specific tenant.
+	 * Returns customer fork if exists, otherwise returns the original dashboard.
+	 *
+	 * @param id - Dashboard ID
+	 * @param tenantId - Tenant ID to check for fork
+	 * @param options - Additional auth options
+	 * @param signal - Optional AbortSignal for cancellation
+	 * @returns Dashboard (fork if exists, original otherwise)
+	 *
+	 * @example
+	 * ```typescript
+	 * const dashboard = await qp.getDashboardForTenant(
+	 *   "dash_123",
+	 *   "tenant_456",
+	 * );
+	 * ```
+	 */
+	async getDashboardForTenant(
+		id: string,
+		tenantId: string,
+		options?: { userId?: string; scopes?: string[] },
+		signal?: AbortSignal,
+	): Promise<dashboardsRoute.SdkDashboard> {
+		return await dashboardsRoute.getDashboardForTenant(
+			this.client,
+			id,
+			tenantId,
+			options,
+			signal,
+		);
+	}
+
+	/**
+	 * Updates a dashboard.
+	 *
+	 * @param id - Dashboard ID to update
+	 * @param body - Fields to update
+	 * @param options - Tenant, user, and scope options
+	 * @param signal - Optional AbortSignal for cancellation
+	 * @returns Updated dashboard
+	 *
+	 * @example
+	 * ```typescript
+	 * const updated = await qp.updateDashboard("dash_123", {
+	 *   name: "Updated Dashboard",
+	 *   content_json: newBlockNoteContent,
+	 * }, { tenantId: "tenant_123" });
+	 * ```
+	 */
+	async updateDashboard(
+		id: string,
+		body: dashboardsRoute.DashboardUpdateInput,
+		options?: { tenantId?: string; userId?: string; scopes?: string[] },
+		signal?: AbortSignal,
+	): Promise<dashboardsRoute.SdkDashboard> {
+		return await dashboardsRoute.updateDashboard(
+			this.client,
+			id,
+			body,
+			options,
+			signal,
+		);
+	}
+
+	/**
+	 * Updates dashboard status (deploy/undeploy).
+	 *
+	 * @param id - Dashboard ID
+	 * @param status - New status
+	 * @param options - Tenant, user, and scope options
+	 * @param signal - Optional AbortSignal for cancellation
+	 * @returns Updated dashboard
+	 *
+	 * @example
+	 * ```typescript
+	 * const deployed = await qp.updateDashboardStatus(
+	 *   "dash_123",
+	 *   "deployed",
+	 *   { tenantId: "tenant_123" },
+	 * );
+	 * ```
+	 */
+	async updateDashboardStatus(
+		id: string,
+		status: "draft" | "deployed",
+		options?: { tenantId?: string; userId?: string; scopes?: string[] },
+		signal?: AbortSignal,
+	): Promise<dashboardsRoute.SdkDashboard> {
+		return await dashboardsRoute.updateDashboardStatus(
+			this.client,
+			id,
+			status,
+			options,
+			signal,
+		);
+	}
+
+	/**
+	 * Deletes a dashboard.
+	 *
+	 * @param id - Dashboard ID to delete
+	 * @param options - Tenant, user, and scope options
+	 * @param signal - Optional AbortSignal for cancellation
+	 *
+	 * @example
+	 * ```typescript
+	 * await qp.deleteDashboard("dash_123", { tenantId: "tenant_123" });
+	 * ```
+	 */
+	async deleteDashboard(
+		id: string,
+		options?: { tenantId?: string; userId?: string; scopes?: string[] },
+		signal?: AbortSignal,
+	): Promise<void> {
+		await dashboardsRoute.deleteDashboard(this.client, id, options, signal);
+	}
+
+	// Dashboard Fork operations (Customer Customization)
+
+	/**
+	 * Forks a dashboard for customer customization (copy-on-write).
+	 *
+	 * Creates a full copy of the dashboard that the customer can edit independently.
+	 * The original dashboard remains unchanged.
+	 *
+	 * @param id - Dashboard ID to fork
+	 * @param input - Fork configuration with tenant_id
+	 * @param options - Additional auth options
+	 * @param signal - Optional AbortSignal for cancellation
+	 * @returns Forked dashboard
+	 *
+	 * @example
+	 * ```typescript
+	 * const fork = await qp.forkDashboard("dash_123", {
+	 *   tenant_id: "tenant_456",
+	 *   name: "Customer's Custom Dashboard",
+	 * });
+	 * ```
+	 */
+	async forkDashboard(
+		id: string,
+		input: dashboardsRoute.DashboardForkInput,
+		options?: { userId?: string; scopes?: string[] },
+		signal?: AbortSignal,
+	): Promise<dashboardsRoute.SdkDashboard> {
+		return await dashboardsRoute.forkDashboard(
+			this.client,
+			id,
+			input,
+			options,
+			signal,
+		);
+	}
+
+	/**
+	 * Updates a customer fork.
+	 *
+	 * @param forkId - Fork ID to update
+	 * @param input - Update data including tenant_id
+	 * @param options - Additional auth options
+	 * @param signal - Optional AbortSignal for cancellation
+	 * @returns Updated fork
+	 *
+	 * @example
+	 * ```typescript
+	 * const updated = await qp.updateFork("fork_123", {
+	 *   tenant_id: "tenant_456",
+	 *   content_json: newBlockNoteContent,
+	 * });
+	 * ```
+	 */
+	async updateFork(
+		forkId: string,
+		input: dashboardsRoute.DashboardForkUpdateInput,
+		options?: { userId?: string; scopes?: string[] },
+		signal?: AbortSignal,
+	): Promise<dashboardsRoute.SdkDashboard> {
+		return await dashboardsRoute.updateFork(
+			this.client,
+			forkId,
+			input,
+			options,
+			signal,
+		);
+	}
+
+	/**
+	 * Rollbacks a fork to the original dashboard.
+	 * This deletes the fork and the customer will see the original again.
+	 *
+	 * @param forkId - Fork ID to rollback
+	 * @param tenantId - Tenant ID
+	 * @param options - Additional auth options
+	 * @param signal - Optional AbortSignal for cancellation
+	 * @returns Original dashboard
+	 *
+	 * @example
+	 * ```typescript
+	 * const original = await qp.rollbackFork("fork_123", "tenant_456");
+	 * ```
+	 */
+	async rollbackFork(
+		forkId: string,
+		tenantId: string,
+		options?: { userId?: string; scopes?: string[] },
+		signal?: AbortSignal,
+	): Promise<dashboardsRoute.SdkDashboard> {
+		return await dashboardsRoute.rollbackFork(
+			this.client,
+			forkId,
+			tenantId,
+			options,
+			signal,
+		);
+	}
+
+	/**
+	 * Deletes a customer fork.
+	 *
+	 * @param forkId - Fork ID to delete
+	 * @param tenantId - Tenant ID
+	 * @param options - Additional auth options
+	 * @param signal - Optional AbortSignal for cancellation
+	 *
+	 * @example
+	 * ```typescript
+	 * await qp.deleteFork("fork_123", "tenant_456");
+	 * ```
+	 */
+	async deleteFork(
+		forkId: string,
+		tenantId: string,
+		options?: { userId?: string; scopes?: string[] },
+		signal?: AbortSignal,
+	): Promise<void> {
+		await dashboardsRoute.deleteFork(
+			this.client,
+			forkId,
+			tenantId,
+			options,
+			signal,
+		);
+	}
+
+	/**
+	 * Lists all customer forks for a tenant.
+	 *
+	 * @param tenantId - Tenant ID
+	 * @param options - Additional auth options
+	 * @param signal - Optional AbortSignal for cancellation
+	 * @returns Array of forks
+	 *
+	 * @example
+	 * ```typescript
+	 * const forks = await qp.listForksForTenant("tenant_456");
+	 * ```
+	 */
+	async listForksForTenant(
+		tenantId: string,
+		options?: { userId?: string; scopes?: string[] },
+		signal?: AbortSignal,
+	): Promise<dashboardsRoute.SdkDashboard[]> {
+		return await dashboardsRoute.listForksForTenant(
+			this.client,
+			tenantId,
+			options,
+			signal,
+		);
 	}
 }
