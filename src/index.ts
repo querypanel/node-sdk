@@ -76,6 +76,8 @@ export type {
 	AskResponse,
 	ChartEnvelope,
 	ContextDocument,
+	IntentResult,
+	PipelineTrace,
 } from "./routes/query";
 // Re-export anonymizeResults utility
 export { anonymizeResults } from "./routes/query";
