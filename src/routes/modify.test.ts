@@ -764,6 +764,60 @@ describe("routes/modify", () => {
 				]);
 			});
 
+			it("should override generated date params with exact requested date range", async () => {
+				mockClient.post
+					.mockResolvedValueOnce({
+						success: true,
+						sql: "SELECT * FROM orders WHERE created_at >= {start_date:DateTime} AND created_at < {end_date:DateTime}",
+						params: [
+							{ name: "start_date", value: "2024-01-01 00:00:00" },
+							{ name: "end_date", value: "2024-02-01 00:00:00" },
+						],
+						dialect: "postgres",
+					})
+					.mockResolvedValueOnce({
+						chart: { mark: "table" },
+						notes: null,
+					});
+
+				mockQueryEngine.validateAndExecute.mockResolvedValue({
+					rows: [{ id: 1 }],
+					fields: ["id"],
+				});
+
+				const result = await modifyChart(
+					mockClient,
+					mockQueryEngine,
+					{
+						sql: "SELECT * FROM orders",
+						question: "orders by date",
+						database: "test-db",
+						sqlModifications: {
+							dateRange: { from: "2024-01-01", to: "2024-01-31" },
+						},
+					},
+					{ tenantId: "tenant-1", pipeline: "v2" },
+				);
+
+				expect(result.params).toEqual({
+					start_date: "2024-01-01 00:00:00",
+					end_date: "2024-01-31 23:59:59",
+				});
+				expect(result.paramMetadata).toEqual([
+					{ name: "start_date", value: "2024-01-01 00:00:00" },
+					{ name: "end_date", value: "2024-01-31 23:59:59" },
+				]);
+				expect(mockQueryEngine.validateAndExecute).toHaveBeenCalledWith(
+					expect.any(String),
+					{
+						start_date: "2024-01-01 00:00:00",
+						end_date: "2024-01-31 23:59:59",
+					},
+					"test-db",
+					"tenant-1",
+				);
+			});
+
 			it("should clear params when using customSql", async () => {
 				mockQueryEngine.validateAndExecute.mockResolvedValue({
 					rows: [{ id: 1 }],

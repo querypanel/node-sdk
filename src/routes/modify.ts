@@ -237,6 +237,7 @@ interface ServerVizSpecResponse {
 function buildModifiedQuestion(
 	originalQuestion: string,
 	modifications: SqlModifications,
+	pipeline?: "v1" | "v2",
 ): string {
 	const hints: string[] = [];
 
@@ -245,15 +246,34 @@ function buildModifiedQuestion(
 	}
 
 	if (modifications.dateRange) {
-		const parts: string[] = [];
-		if (modifications.dateRange.from) {
-			parts.push(`from ${modifications.dateRange.from}`);
-		}
-		if (modifications.dateRange.to) {
-			parts.push(`to ${modifications.dateRange.to}`);
-		}
-		if (parts.length > 0) {
-			hints.push(`filter date range ${parts.join(" ")}`);
+		if (pipeline === "v2") {
+			const from = normalizeDateInput(modifications.dateRange.from);
+			const to = normalizeDateInput(modifications.dateRange.to);
+
+			if (from && to) {
+				hints.push(
+					`replace any existing date filters with exact date range from ${from} to ${to} (inclusive, do not add extra days)`,
+				);
+			} else if (from) {
+				hints.push(
+					`replace any existing date filters with exact start date ${from} (do not shift this date)`,
+				);
+			} else if (to) {
+				hints.push(
+					`replace any existing date filters with exact end date ${to} (inclusive, do not add extra days)`,
+				);
+			}
+		} else {
+			const parts: string[] = [];
+			if (modifications.dateRange.from) {
+				parts.push(`from ${modifications.dateRange.from}`);
+			}
+			if (modifications.dateRange.to) {
+				parts.push(`to ${modifications.dateRange.to}`);
+			}
+			if (parts.length > 0) {
+				hints.push(`filter date range ${parts.join(" ")}`);
+			}
 		}
 	}
 
@@ -266,6 +286,113 @@ function buildModifiedQuestion(
 	}
 
 	return `${originalQuestion} (${hints.join(", ")})`;
+}
+
+const START_PARAM_KEY_REGEX = /(^|_)(start|from)(_|$)/i;
+const END_PARAM_KEY_REGEX = /(^|_)(end|to)(_|$)/i;
+const ISO_DATETIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z?$/;
+const SQL_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const SQL_DATETIME_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
+
+function normalizeDateInput(value?: string): string | undefined {
+	if (!value) return undefined;
+	const trimmed = value.trim();
+	if (!trimmed) return undefined;
+
+	if (ISO_DATETIME_RE.test(trimmed)) {
+		return trimmed
+			.replace("T", " ")
+			.replace(/\.\d+Z?$/, "")
+			.replace(/Z$/, "");
+	}
+
+	return trimmed;
+}
+
+function keyLooksLikeDateBoundary(
+	key: string,
+	boundary: "start" | "end",
+): boolean {
+	return boundary === "start"
+		? START_PARAM_KEY_REGEX.test(key)
+		: END_PARAM_KEY_REGEX.test(key);
+}
+
+function hasTimeComponent(value: unknown): boolean {
+	return typeof value === "string" && /\d{2}:\d{2}:\d{2}/.test(value);
+}
+
+function formatDateOverride(
+	dateValue: string,
+	boundary: "start" | "end",
+	existingValue: unknown,
+): string {
+	// Preserve date-only params as date-only values.
+	if (SQL_DATE_RE.test(dateValue) && !hasTimeComponent(existingValue)) {
+		return dateValue;
+	}
+
+	if (SQL_DATE_RE.test(dateValue)) {
+		return `${dateValue} ${boundary === "start" ? "00:00:00" : "23:59:59"}`;
+	}
+
+	if (SQL_DATETIME_RE.test(dateValue)) {
+		return dateValue;
+	}
+
+	// Best effort fallback for already-normalized non-standard values.
+	return dateValue;
+}
+
+function normalizeGeneratedParamKey(
+	param: Record<string, unknown>,
+	index: number,
+): string {
+	const nameCandidate =
+		(typeof param.name === "string" && param.name.trim()) ||
+		(typeof param.placeholder === "string" && param.placeholder.trim()) ||
+		(typeof param.position === "number" && String(param.position)) ||
+		String(index + 1);
+
+	return nameCandidate
+		.replace(/[{}]/g, "")
+		.replace(/(.+):.*$/, "$1")
+		.replace(/^[:$]/, "")
+		.trim();
+}
+
+function applyDateRangeOverrides(
+	dateRange: DateRangeInput | undefined,
+	params: ParamRecord,
+	paramMetadata: Array<Record<string, unknown>>,
+): void {
+	if (!dateRange) return;
+
+	const from = normalizeDateInput(dateRange.from);
+	const to = normalizeDateInput(dateRange.to);
+	if (!from && !to) return;
+
+	for (const [key, value] of Object.entries(params)) {
+		if (from && keyLooksLikeDateBoundary(key, "start")) {
+			params[key] = formatDateOverride(from, "start", value);
+		}
+		if (to && keyLooksLikeDateBoundary(key, "end")) {
+			params[key] = formatDateOverride(to, "end", value);
+		}
+	}
+
+	for (let i = 0; i < paramMetadata.length; i++) {
+		const param = paramMetadata[i];
+		if (!param) continue;
+		const key = normalizeGeneratedParamKey(param, i);
+
+		if (from && keyLooksLikeDateBoundary(key, "start")) {
+			param.value = formatDateOverride(from, "start", param.value);
+		}
+		if (to && keyLooksLikeDateBoundary(key, "end")) {
+			param.value = formatDateOverride(to, "end", param.value);
+		}
+	}
 }
 
 /**
@@ -319,6 +446,19 @@ function stripVizSpecOnlyHints(
 
 	const { kind: _kind, ...rest } = hints as { kind?: unknown };
 	return rest;
+}
+
+/**
+ * Returns true when sqlModifications contains only a dateRange
+ * (no timeGranularity, no additionalInstructions, no customSql).
+ */
+function isDateRangeOnly(mods: SqlModifications): boolean {
+	return (
+		!!mods.dateRange &&
+		!mods.timeGranularity &&
+		!mods.additionalInstructions &&
+		!mods.customSql
+	);
 }
 
 /**
@@ -412,6 +552,7 @@ export async function modifyChart(
 	let rationale: string | undefined;
 	let queryId: string | undefined;
 	let sqlChanged = false;
+	let finalQuestion = input.question;
 
 	// Get database metadata for tenant settings
 	const databaseName = input.database ?? queryEngine.getDefaultDatabase();
@@ -438,12 +579,106 @@ export async function modifyChart(
 		paramMetadata = [];
 		sqlChanged = true;
 	}
+	// Path 2a: Date-range-only modification on v2 — lightweight rewrite endpoint
+	else if (
+		hasSqlMods &&
+		options?.pipeline === "v2" &&
+		isDateRangeOnly(input.sqlModifications!)
+	) {
+		let usedFastPath = false;
+		try {
+			const rewriteResponse = await client.post<ServerQueryResponse>(
+				"/v2/rewrite-datefilter",
+				{
+					previous_sql: input.sql,
+					previous_params: input.params
+						? Object.entries(input.params).map(([name, value]) => ({
+								name,
+								value,
+							}))
+						: [],
+					date_range: input.sqlModifications!.dateRange,
+					question: input.question,
+					...(tenantSettings ? { tenant_settings: tenantSettings } : {}),
+					...(databaseName ? { database: databaseName } : {}),
+					...(metadata?.dialect ? { dialect: metadata.dialect } : {}),
+				},
+				tenantId,
+				options?.userId,
+				options?.scopes,
+				signal,
+				sessionId,
+			);
+
+			finalSql = rewriteResponse.sql;
+			paramMetadata = Array.isArray(rewriteResponse.params)
+				? rewriteResponse.params
+				: [];
+			finalParams = queryEngine.mapGeneratedParams(paramMetadata);
+			applyDateRangeOverrides(
+				input.sqlModifications?.dateRange,
+				finalParams,
+				paramMetadata,
+			);
+			rationale = rewriteResponse.rationale;
+			queryId = rewriteResponse.queryId;
+			sqlChanged = finalSql !== input.sql;
+			usedFastPath = true;
+		} catch {
+			// Fall through to Path 2 (full pipeline) on failure
+		}
+
+		// Path 2a fallback: if fast path failed, use the full pipeline
+		if (!usedFastPath) {
+			const modifiedQuestion = buildModifiedQuestion(
+				input.question,
+				input.sqlModifications!,
+				"v2",
+			);
+			finalQuestion = modifiedQuestion;
+
+			const queryResponse = await client.post<ServerQueryResponse>(
+				queryEndpoint,
+				{
+					question: modifiedQuestion,
+					previous_sql: input.sql,
+					...(options?.maxRetry ? { max_retry: options.maxRetry } : {}),
+					...(tenantSettings ? { tenant_settings: tenantSettings } : {}),
+					...(databaseName ? { database: databaseName } : {}),
+					...(metadata?.dialect ? { dialect: metadata.dialect } : {}),
+				},
+				tenantId,
+				options?.userId,
+				options?.scopes,
+				signal,
+				sessionId,
+			);
+
+			finalSql = queryResponse.sql;
+			paramMetadata = Array.isArray(queryResponse.params)
+				? queryResponse.params
+				: [];
+			finalParams = queryEngine.mapGeneratedParams(paramMetadata);
+			applyDateRangeOverrides(
+				input.sqlModifications?.dateRange,
+				finalParams,
+				paramMetadata,
+			);
+			rationale = queryResponse.rationale;
+			queryId = queryResponse.queryId;
+			sqlChanged = finalSql !== input.sql;
+		}
+	}
 	// Path 2: SQL modifications (non-custom) - regenerate via query endpoint
 	else if (hasSqlMods && !hasCustomSql) {
 		const modifiedQuestion = buildModifiedQuestion(
 			input.question,
 			input.sqlModifications!,
+			options?.pipeline,
 		);
+		if (options?.pipeline === "v2") {
+			finalQuestion = modifiedQuestion;
+		}
 
 		const queryResponse = await client.post<ServerQueryResponse>(
 			queryEndpoint,
@@ -467,6 +702,13 @@ export async function modifyChart(
 			? queryResponse.params
 			: [];
 		finalParams = queryEngine.mapGeneratedParams(paramMetadata);
+		if (options?.pipeline === "v2") {
+			applyDateRangeOverrides(
+				input.sqlModifications?.dateRange,
+				finalParams,
+				paramMetadata,
+			);
+		}
 		rationale = queryResponse.rationale;
 		queryId = queryResponse.queryId;
 		sqlChanged = finalSql !== input.sql;
@@ -497,7 +739,7 @@ export async function modifyChart(
 			const vizspecResponse = await client.post<ServerVizSpecResponse>(
 				"/vizspec",
 				{
-					question: input.question,
+					question: finalQuestion,
 					sql: finalSql,
 					rationale,
 					fields: execution.fields,
@@ -523,7 +765,7 @@ export async function modifyChart(
 			const chartResponse = await client.post<ServerChartResponse>(
 				"/chart",
 				{
-					question: input.question,
+					question: finalQuestion,
 					sql: finalSql,
 					rationale,
 					fields: execution.fields,
