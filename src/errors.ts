@@ -19,6 +19,9 @@ export const QueryErrorCode = {
 	// Context retrieval errors
 	CONTEXT_RETRIEVAL_FAILED: "CONTEXT_RETRIEVAL_FAILED",
 
+	// Clarification errors (v2)
+	CLARIFICATION_NEEDED: "CLARIFICATION_NEEDED",
+
 	// General errors
 	INTERNAL_ERROR: "INTERNAL_ERROR",
 	AUTHENTICATION_REQUIRED: "AUTHENTICATION_REQUIRED",
@@ -67,5 +70,12 @@ export class QueryPipelineError extends Error {
 	 */
 	isGuardrailError(): boolean {
 		return this.isRelevanceError() || this.isSecurityError();
+	}
+
+	/**
+	 * Check if this is a clarification needed error (v2 pipeline)
+	 */
+	isClarificationNeeded(): boolean {
+		return this.code === QueryErrorCode.CLARIFICATION_NEEDED;
 	}
 }

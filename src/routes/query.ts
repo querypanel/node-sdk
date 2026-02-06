@@ -59,6 +59,36 @@ export interface AskOptions {
 	 * Use this to reuse a previously returned session for follow-up prompts.
 	 */
 	querypanelSessionId?: string;
+	/**
+	 * Pipeline version to use for query generation.
+	 * - "v1" (default): Original query pipeline
+	 * - "v2": Improved pipeline with intent planning, hybrid retrieval, schema linking, and SQL reflection
+	 */
+	pipeline?: "v1" | "v2";
+}
+
+/**
+ * Intent analysis result from the v2 pipeline.
+ */
+export interface IntentResult {
+	intent: string;
+	confidence: number;
+	plan: {
+		tables: string[];
+		operations: string[];
+		filters: string[];
+		orderBy?: string;
+		limit?: number;
+	};
+	ambiguities: Array<{ issue: string; suggestion: string }>;
+}
+
+/**
+ * Pipeline execution trace with step-level timing.
+ */
+export interface PipelineTrace {
+	totalDurationMs: number;
+	steps: Array<{ step: string; durationMs: number }>;
 }
 
 /**
@@ -91,6 +121,10 @@ export interface AskResponse {
 	target_db?: string;
 	/** QueryPanel session ID for follow-up queries. */
 	querypanelSessionId?: string;
+	/** Intent analysis from v2 pipeline. */
+	intent?: IntentResult;
+	/** Pipeline execution trace from v2 pipeline. */
+	trace?: PipelineTrace;
 }
 
 interface ServerQueryResponse {
@@ -103,6 +137,9 @@ interface ServerQueryResponse {
 	rationale?: string;
 	queryId?: string;
 	context?: ContextDocument[];
+	// v2-specific fields
+	intent?: IntentResult;
+	trace?: PipelineTrace;
 	// Error fields
 	error?: string;
 	code?: QueryErrorCode;
@@ -138,6 +175,9 @@ export async function ask(
 	let lastError: string | undefined = options.lastError;
 	let previousSql: string | undefined = options.previousSql;
 
+	const queryEndpoint =
+		options.pipeline === "v2" ? "/v2/query" : "/query";
+
 	while (attempt <= maxRetry) {
 		// Step 1: Get SQL from backend
 		console.log({ lastError, previousSql });
@@ -158,7 +198,7 @@ export async function ask(
 		}
 
 		const queryResponse = await client.postWithHeaders<ServerQueryResponse>(
-			"/query",
+			queryEndpoint,
 			{
 				question,
 				...(querypanelSessionId ? { session_id: querypanelSessionId } : {}),
@@ -300,6 +340,8 @@ export async function ask(
 				attempts: attempt + 1,
 				target_db: dbName,
 				querypanelSessionId: responseSessionId ?? undefined,
+				intent: queryResponse.data.intent,
+				trace: queryResponse.data.trace,
 			};
 		} catch (error) {
 			attempt++;

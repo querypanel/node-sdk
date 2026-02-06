@@ -180,6 +180,12 @@ export interface ChartModifyOptions {
 	chartMaxRetries?: number;
 	/** Chart generation method: 'vega-lite' or 'vizspec' */
 	chartType?: "vega-lite" | "vizspec";
+	/**
+	 * Pipeline version to use for SQL regeneration.
+	 * - "v1" (default): Original query pipeline
+	 * - "v2": Improved pipeline with intent planning, hybrid retrieval, schema linking, and SQL reflection
+	 */
+	pipeline?: "v1" | "v2";
 }
 
 /**
@@ -396,6 +402,9 @@ export async function modifyChart(
 	const hasVizMods = !!input.vizModifications;
 	const hasCustomSql = !!input.sqlModifications?.customSql;
 
+	const queryEndpoint =
+		options?.pipeline === "v2" ? "/v2/query" : "/query";
+
 	// Determine which SQL to use
 	let finalSql = input.sql;
 	let finalParams = input.params ?? {};
@@ -437,7 +446,7 @@ export async function modifyChart(
 		);
 
 		const queryResponse = await client.post<ServerQueryResponse>(
-			"/query",
+			queryEndpoint,
 			{
 				question: modifiedQuestion,
 				previous_sql: input.sql,
