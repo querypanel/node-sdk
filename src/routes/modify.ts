@@ -186,6 +186,12 @@ export interface ChartModifyOptions {
 	 * - "v2": Improved pipeline with intent planning, hybrid retrieval, schema linking, and SQL reflection
 	 */
 	pipeline?: "v1" | "v2";
+	/**
+	 * QueryPanel session ID for context-aware follow-ups.
+	 * Pass the querypanelSessionId from a previous ask() response
+	 * to preserve conversation history when modifying charts.
+	 */
+	querypanelSessionId?: string;
 }
 
 /**
@@ -251,17 +257,11 @@ function buildModifiedQuestion(
 			const to = normalizeDateInput(modifications.dateRange.to);
 
 			if (from && to) {
-				hints.push(
-					`replace any existing date filters with exact date range from ${from} to ${to} (inclusive, do not add extra days)`,
-				);
+				hints.push(`change date range to ${from} through ${to}`);
 			} else if (from) {
-				hints.push(
-					`replace any existing date filters with exact start date ${from} (do not shift this date)`,
-				);
+				hints.push(`change start date to ${from}`);
 			} else if (to) {
-				hints.push(
-					`replace any existing date filters with exact end date ${to} (inclusive, do not add extra days)`,
-				);
+				hints.push(`change end date to ${to}`);
 			}
 		} else {
 			const parts: string[] = [];
@@ -449,19 +449,6 @@ function stripVizSpecOnlyHints(
 }
 
 /**
- * Returns true when sqlModifications contains only a dateRange
- * (no timeGranularity, no additionalInstructions, no customSql).
- */
-function isDateRangeOnly(mods: SqlModifications): boolean {
-	return (
-		!!mods.dateRange &&
-		!mods.timeGranularity &&
-		!mods.additionalInstructions &&
-		!mods.customSql
-	);
-}
-
-/**
  * Resolves tenant ID from options or client default.
  */
 function resolveTenantId(client: ApiClient, tenantId?: string): string {
@@ -536,6 +523,7 @@ export async function modifyChart(
 ): Promise<ChartModifyResponse> {
 	const tenantId = resolveTenantId(client, options?.tenantId);
 	const sessionId = crypto.randomUUID();
+	const querypanelSessionId = options?.querypanelSessionId ?? sessionId;
 	const chartType = options?.chartType ?? "vega-lite";
 
 	const hasSqlMods = !!input.sqlModifications;
@@ -579,96 +567,6 @@ export async function modifyChart(
 		paramMetadata = [];
 		sqlChanged = true;
 	}
-	// Path 2a: Date-range-only modification on v2 — lightweight rewrite endpoint
-	else if (
-		hasSqlMods &&
-		options?.pipeline === "v2" &&
-		isDateRangeOnly(input.sqlModifications!)
-	) {
-		let usedFastPath = false;
-		try {
-			const rewriteResponse = await client.post<ServerQueryResponse>(
-				"/v2/rewrite-datefilter",
-				{
-					previous_sql: input.sql,
-					previous_params: input.params
-						? Object.entries(input.params).map(([name, value]) => ({
-								name,
-								value,
-							}))
-						: [],
-					date_range: input.sqlModifications!.dateRange,
-					question: input.question,
-					...(tenantSettings ? { tenant_settings: tenantSettings } : {}),
-					...(databaseName ? { database: databaseName } : {}),
-					...(metadata?.dialect ? { dialect: metadata.dialect } : {}),
-				},
-				tenantId,
-				options?.userId,
-				options?.scopes,
-				signal,
-				sessionId,
-			);
-
-			finalSql = rewriteResponse.sql;
-			paramMetadata = Array.isArray(rewriteResponse.params)
-				? rewriteResponse.params
-				: [];
-			finalParams = queryEngine.mapGeneratedParams(paramMetadata);
-			applyDateRangeOverrides(
-				input.sqlModifications?.dateRange,
-				finalParams,
-				paramMetadata,
-			);
-			rationale = rewriteResponse.rationale;
-			queryId = rewriteResponse.queryId;
-			sqlChanged = finalSql !== input.sql;
-			usedFastPath = true;
-		} catch {
-			// Fall through to Path 2 (full pipeline) on failure
-		}
-
-		// Path 2a fallback: if fast path failed, use the full pipeline
-		if (!usedFastPath) {
-			const modifiedQuestion = buildModifiedQuestion(
-				input.question,
-				input.sqlModifications!,
-				"v2",
-			);
-			finalQuestion = modifiedQuestion;
-
-			const queryResponse = await client.post<ServerQueryResponse>(
-				queryEndpoint,
-				{
-					question: modifiedQuestion,
-					previous_sql: input.sql,
-					...(options?.maxRetry ? { max_retry: options.maxRetry } : {}),
-					...(tenantSettings ? { tenant_settings: tenantSettings } : {}),
-					...(databaseName ? { database: databaseName } : {}),
-					...(metadata?.dialect ? { dialect: metadata.dialect } : {}),
-				},
-				tenantId,
-				options?.userId,
-				options?.scopes,
-				signal,
-				sessionId,
-			);
-
-			finalSql = queryResponse.sql;
-			paramMetadata = Array.isArray(queryResponse.params)
-				? queryResponse.params
-				: [];
-			finalParams = queryEngine.mapGeneratedParams(paramMetadata);
-			applyDateRangeOverrides(
-				input.sqlModifications?.dateRange,
-				finalParams,
-				paramMetadata,
-			);
-			rationale = queryResponse.rationale;
-			queryId = queryResponse.queryId;
-			sqlChanged = finalSql !== input.sql;
-		}
-	}
 	// Path 2: SQL modifications (non-custom) - regenerate via query endpoint
 	else if (hasSqlMods && !hasCustomSql) {
 		const modifiedQuestion = buildModifiedQuestion(
@@ -684,6 +582,7 @@ export async function modifyChart(
 			queryEndpoint,
 			{
 				question: modifiedQuestion,
+				session_id: querypanelSessionId,
 				previous_sql: input.sql,
 				...(options?.maxRetry ? { max_retry: options.maxRetry } : {}),
 				...(tenantSettings ? { tenant_settings: tenantSettings } : {}),
@@ -802,6 +701,7 @@ export async function modifyChart(
 		rationale,
 		dialect: metadata?.dialect ?? "unknown",
 		queryId,
+		querypanelSessionId,
 		rows,
 		fields: execution.fields,
 		chart,
