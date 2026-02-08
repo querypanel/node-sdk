@@ -725,6 +725,146 @@ describe("routes/modify", () => {
 			});
 		});
 
+		describe("v2 pipeline question format", () => {
+			it("should send only modification hints without original question for v2", async () => {
+				mockClient.post
+					.mockResolvedValueOnce({
+						success: true,
+						sql: "SELECT * FROM orders WHERE created_at >= '2024-01-01'",
+						params: [],
+						dialect: "postgres",
+					})
+					.mockResolvedValueOnce({
+						chart: { mark: "bar" },
+						notes: null,
+					});
+
+				mockQueryEngine.validateAndExecute.mockResolvedValue({
+					rows: [{ id: 1 }],
+					fields: ["id"],
+				});
+
+				await modifyChart(
+					mockClient,
+					mockQueryEngine,
+					{
+						sql: "SELECT * FROM orders",
+						question: "show orders",
+						database: "test-db",
+						sqlModifications: {
+							dateRange: { from: "2024-01-01", to: "2024-12-31" },
+						},
+					},
+					{ tenantId: "tenant-1", pipeline: "v2" },
+				);
+
+				// v2: question should be ONLY the hints, not "show orders (change date range...)"
+				expect(mockClient.post).toHaveBeenCalledWith(
+					"/v2/query",
+					expect.objectContaining({
+						question: "change date range to 2024-01-01 through 2024-12-31",
+					}),
+					expect.any(String),
+					undefined,
+					undefined,
+					undefined,
+					expect.any(String),
+				);
+			});
+
+			it("should combine multiple v2 hints without original question", async () => {
+				mockClient.post
+					.mockResolvedValueOnce({
+						success: true,
+						sql: "SELECT * FROM orders",
+						params: [],
+						dialect: "postgres",
+					})
+					.mockResolvedValueOnce({
+						chart: { mark: "line" },
+						notes: null,
+					});
+
+				mockQueryEngine.validateAndExecute.mockResolvedValue({
+					rows: [{ id: 1 }],
+					fields: ["id"],
+				});
+
+				await modifyChart(
+					mockClient,
+					mockQueryEngine,
+					{
+						sql: "SELECT * FROM orders",
+						question: "revenue over time",
+						database: "test-db",
+						sqlModifications: {
+							timeGranularity: "week",
+							dateRange: { from: "2024-01-01", to: "2024-06-30" },
+							additionalInstructions: "only completed orders",
+						},
+					},
+					{ tenantId: "tenant-1", pipeline: "v2" },
+				);
+
+				expect(mockClient.post).toHaveBeenCalledWith(
+					"/v2/query",
+					expect.objectContaining({
+						question: "group results by week, change date range to 2024-01-01 through 2024-06-30, only completed orders",
+					}),
+					expect.any(String),
+					undefined,
+					undefined,
+					undefined,
+					expect.any(String),
+				);
+			});
+
+			it("should still include original question for v1 pipeline", async () => {
+				mockClient.post
+					.mockResolvedValueOnce({
+						success: true,
+						sql: "SELECT * FROM orders",
+						params: [],
+						dialect: "postgres",
+					})
+					.mockResolvedValueOnce({
+						chart: { mark: "bar" },
+						notes: null,
+					});
+
+				mockQueryEngine.validateAndExecute.mockResolvedValue({
+					rows: [{ id: 1 }],
+					fields: ["id"],
+				});
+
+				await modifyChart(
+					mockClient,
+					mockQueryEngine,
+					{
+						sql: "SELECT * FROM orders",
+						question: "show orders",
+						database: "test-db",
+						sqlModifications: {
+							additionalInstructions: "exclude cancelled",
+						},
+					},
+					{ tenantId: "tenant-1" },
+				);
+
+				expect(mockClient.post).toHaveBeenCalledWith(
+					"/query",
+					expect.objectContaining({
+						question: "show orders (exclude cancelled)",
+					}),
+					expect.any(String),
+					undefined,
+					undefined,
+					undefined,
+					expect.any(String),
+				);
+			});
+		});
+
 		describe("parameters handling", () => {
 			it("should preserve and map parameters from query response", async () => {
 				mockClient.post

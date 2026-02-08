@@ -285,6 +285,13 @@ function buildModifiedQuestion(
 		return originalQuestion;
 	}
 
+	// v2 pipeline retrieves conversation history server-side via session_id,
+	// so send only the modification instruction to avoid redundancy with
+	// the original question already stored in conversation history.
+	if (pipeline === "v2") {
+		return hints.join(", ");
+	}
+
 	return `${originalQuestion} (${hints.join(", ")})`;
 }
 
