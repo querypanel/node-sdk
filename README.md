@@ -212,7 +212,10 @@ const monthly = await qp.modifyChart({
     timeGranularity: "month",
     dateRange: { from: "2024-01-01", to: "2024-12-31" },
   },
-}, { tenantId: "tenant_123" });
+}, {
+  tenantId: "tenant_123",
+  querypanelSessionId: response.querypanelSessionId, // preserve follow-up context
+});
 
 console.log(monthly.sql); // New SQL with monthly GROUP BY
 console.log(monthly.modified.sqlChanged); // true
@@ -274,6 +277,11 @@ const combined = await qp.modifyChart({
 ### Modifying Saved Charts
 
 Load a saved chart and modify it:
+
+If you do not have a previous `querypanelSessionId` (common for persisted charts),
+the SDK starts a new QueryPanel session and sends the full original question with
+your modification hints. If you have one from an earlier `ask()` call, pass it to
+keep follow-up context.
 
 ```ts
 // Load a saved chart

@@ -190,6 +190,8 @@ export interface ChartModifyOptions {
 	 * QueryPanel session ID for context-aware follow-ups.
 	 * Pass the querypanelSessionId from a previous ask() response
 	 * to preserve conversation history when modifying charts.
+	 * If omitted, modifyChart starts a new QueryPanel session and sends
+	 * the original question with modification hints.
 	 */
 	querypanelSessionId?: string;
 }
@@ -244,6 +246,7 @@ function buildModifiedQuestion(
 	originalQuestion: string,
 	modifications: SqlModifications,
 	pipeline?: "v1" | "v2",
+	hasSessionContext = false,
 ): string {
 	const hints: string[] = [];
 
@@ -285,10 +288,9 @@ function buildModifiedQuestion(
 		return originalQuestion;
 	}
 
-	// v2 pipeline retrieves conversation history server-side via session_id,
-	// so send only the modification instruction to avoid redundancy with
-	// the original question already stored in conversation history.
-	if (pipeline === "v2") {
+	// v2 can use hints-only instructions when we are continuing an existing
+	// QueryPanel session that already contains the original question context.
+	if (pipeline === "v2" && hasSessionContext) {
 		return hints.join(", ");
 	}
 
@@ -531,6 +533,7 @@ export async function modifyChart(
 	const tenantId = resolveTenantId(client, options?.tenantId);
 	const sessionId = crypto.randomUUID();
 	const querypanelSessionId = options?.querypanelSessionId ?? sessionId;
+	const hasQuerypanelSessionContext = !!options?.querypanelSessionId;
 	const chartType = options?.chartType ?? "vega-lite";
 
 	const hasSqlMods = !!input.sqlModifications;
@@ -580,6 +583,7 @@ export async function modifyChart(
 			input.question,
 			input.sqlModifications!,
 			options?.pipeline,
+			hasQuerypanelSessionContext,
 		);
 		if (options?.pipeline === "v2") {
 			finalQuestion = modifiedQuestion;
