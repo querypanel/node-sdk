@@ -324,7 +324,7 @@ describe("QueryEngine", () => {
 	});
 
 	describe("mapGeneratedParams", () => {
-		it("should map params with name field", () => {
+		it("should map params with name field (numeric keys preserve SQL order for pg)", () => {
 			const params = [
 				{ name: "userId", value: 123 },
 				{ name: "active", value: true },
@@ -333,7 +333,9 @@ describe("QueryEngine", () => {
 			const result = queryEngine.mapGeneratedParams(params);
 
 			expect(result).toEqual({
+				"1": 123,
 				userId: 123,
+				"2": true,
 				active: true,
 			});
 		});
@@ -347,7 +349,9 @@ describe("QueryEngine", () => {
 			const result = queryEngine.mapGeneratedParams(params);
 
 			expect(result).toEqual({
+				"1": 123,
 				user_id: 123,
+				"2": "active",
 				status: "active",
 			});
 		});
@@ -387,7 +391,9 @@ describe("QueryEngine", () => {
 			const result = queryEngine.mapGeneratedParams(params);
 
 			expect(result).toEqual({
+				"1": "value1",
 				param1: "value1",
+				"3": "value3",
 				param3: "value3",
 			});
 		});
@@ -402,8 +408,11 @@ describe("QueryEngine", () => {
 			const result = queryEngine.mapGeneratedParams(params);
 
 			expect(result).toEqual({
+				"1": 123,
 				userId: 123,
+				"2": "active",
 				status: "active",
+				"3": 10,
 				count: 10,
 			});
 		});

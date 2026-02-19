@@ -109,6 +109,12 @@ export class QueryEngine {
 		}
 	}
 
+	/**
+	 * Maps API params (array in SQL placeholder order $1, $2, $3) to ParamRecord.
+	 * Sets both numeric keys ("1", "2", "3") and named keys so that:
+	 * - Postgres adapter uses numeric order for positional params (matches SQL).
+	 * - Named keys remain for tenant isolation / other lookups.
+	 */
 	mapGeneratedParams(params: Array<Record<string, unknown>>): ParamRecord {
 		const record: ParamRecord = {};
 
@@ -117,6 +123,8 @@ export class QueryEngine {
 			if (value === undefined) {
 				return;
 			}
+			// Numeric key preserves API/SQL order for PostgreSQL $1, $2, $3
+			record[String(index + 1)] = value;
 			const nameCandidate =
 				(typeof param.name === "string" && param.name.trim()) ||
 				(typeof param.placeholder === "string" && param.placeholder.trim()) ||
