@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import type { ApiClient } from "../core/client";
+import type { IQueryPanelApi } from "../core/api-types";
 import type { EncodingHints, VizSpec } from "../types/vizspec";
 
 export interface VizSpecGenerateInput {
@@ -34,7 +35,7 @@ export interface VizSpecResponse {
  * Calls the /vizspec endpoint to generate visualization specifications
  */
 export async function generateVizSpec(
-  client: ApiClient,
+  client: IQueryPanelApi,
   input: VizSpecGenerateInput,
   options?: VizSpecGenerateOptions,
   signal?: AbortSignal,
@@ -64,7 +65,7 @@ export async function generateVizSpec(
   return response;
 }
 
-function resolveTenantId(client: ApiClient, tenantId?: string): string {
+function resolveTenantId(client: IQueryPanelApi, tenantId?: string): string {
   const resolved = tenantId ?? client.getDefaultTenantId();
   if (!resolved) {
     throw new Error(

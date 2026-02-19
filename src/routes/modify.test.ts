@@ -1,23 +1,17 @@
 import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
+import type { QueryEngine } from "../core/query-engine";
+import { createMockQueryPanelApi } from "../test-utils";
 import { modifyChart } from "./modify";
 
 describe("routes/modify", () => {
-	let mockClient: {
-		post: Mock;
-		getDefaultTenantId: Mock;
-	};
-	let mockQueryEngine: {
-		getDefaultDatabase: Mock;
-		getDatabaseMetadata: Mock;
-		mapGeneratedParams: Mock;
-		validateAndExecute: Mock;
-	};
+	let mockClient: ReturnType<typeof createMockQueryPanelApi>;
+	let mockQueryEngine: QueryEngine;
 
 	beforeEach(() => {
-		mockClient = {
+		mockClient = createMockQueryPanelApi({
 			post: vi.fn(),
 			getDefaultTenantId: vi.fn(() => "default-tenant"),
-		};
+		});
 
 		mockQueryEngine = {
 			getDefaultDatabase: vi.fn(() => "default-db"),
@@ -34,7 +28,7 @@ describe("routes/modify", () => {
 				return record;
 			}),
 			validateAndExecute: vi.fn(),
-		};
+		} as unknown as QueryEngine;
 	});
 
 	describe("modifyChart", () => {

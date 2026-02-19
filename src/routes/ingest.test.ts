@@ -1,20 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { createMockQueryPanelApi } from "../test-utils";
 import { syncSchema } from "./ingest";
-import type { ApiClient } from "../core/client";
 import type { QueryEngine } from "../core/query-engine";
 import type { DatabaseAdapter } from "../adapters/types";
 import type { SchemaIntrospection } from "../schema/types";
 
 describe("routes/ingest", () => {
-	let mockClient: ApiClient;
+	let mockClient: ReturnType<typeof createMockQueryPanelApi>;
 	let mockQueryEngine: QueryEngine;
 	let mockAdapter: DatabaseAdapter;
 
 	beforeEach(() => {
-		mockClient = {
+		mockClient = createMockQueryPanelApi({
 			post: vi.fn(),
 			getDefaultTenantId: vi.fn(() => "default-tenant"),
-		} as any;
+		});
 
 		mockAdapter = {
 			introspect: vi.fn(),

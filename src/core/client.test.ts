@@ -23,20 +23,20 @@ describe("ApiClient", () => {
 		it("should throw error if baseUrl is missing", () => {
 			expect(
 				() =>
-					new ApiClient("", mockPrivateKey, mockOrgId, { fetch: mockFetch }),
+					new ApiClient("", mockPrivateKey, mockOrgId, { fetch: mockFetch as unknown as typeof fetch }),
 			).toThrow("Base URL is required");
 		});
 
 		it("should throw error if privateKey is missing", () => {
 			expect(
-				() => new ApiClient(mockBaseUrl, "", mockOrgId, { fetch: mockFetch }),
+				() => new ApiClient(mockBaseUrl, "", mockOrgId, { fetch: mockFetch as unknown as typeof fetch }),
 			).toThrow("Private key is required");
 		});
 
 		it("should throw error if organizationId is missing", () => {
 			expect(
 				() =>
-					new ApiClient(mockBaseUrl, mockPrivateKey, "", { fetch: mockFetch }),
+					new ApiClient(mockBaseUrl, mockPrivateKey, "", { fetch: mockFetch as unknown as typeof fetch }),
 			).toThrow("Organization ID is required");
 		});
 
@@ -50,7 +50,7 @@ describe("ApiClient", () => {
 				"https://api.example.com///",
 				mockPrivateKey,
 				mockOrgId,
-				{ fetch: mockFetch },
+				{ fetch: mockFetch as unknown as typeof fetch },
 			);
 
 			await client.get("/test", "tenant-1");

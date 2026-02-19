@@ -121,7 +121,7 @@ describe("QueryEngine", () => {
 
 	describe("validateAndExecute", () => {
 		beforeEach(() => {
-			mockAdapter.validate.mockResolvedValue();
+			mockAdapter.validate.mockResolvedValue(undefined);
 			mockAdapter.execute.mockResolvedValue({
 				rows: [{ id: 1, name: "test" }],
 				fields: ["id", "name"],
@@ -313,7 +313,11 @@ describe("QueryEngine", () => {
 
 			queryEngine.attachDatabase("test-db", mockAdapter, metadata);
 
-			const result = await queryEngine.execute("SELECT * FROM users");
+			const result = await queryEngine.execute(
+				"SELECT * FROM users",
+				undefined,
+				"test-db",
+			);
 
 			expect(result).toEqual([]);
 		});

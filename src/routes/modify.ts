@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import type { ApiClient } from "../core/client";
+import type { IQueryPanelApi } from "../core/api-types";
 import type { ParamRecord, QueryEngine } from "../core/query-engine";
 import type {
 	AggregateOp,
@@ -460,7 +460,7 @@ function stripVizSpecOnlyHints(
 /**
  * Resolves tenant ID from options or client default.
  */
-function resolveTenantId(client: ApiClient, tenantId?: string): string {
+function resolveTenantId(client: IQueryPanelApi, tenantId?: string): string {
 	const resolved = tenantId ?? client.getDefaultTenantId();
 	if (!resolved) {
 		throw new Error(
@@ -524,7 +524,7 @@ function resolveTenantId(client: ApiClient, tenantId?: string): string {
  * ```
  */
 export async function modifyChart(
-	client: ApiClient,
+	client: IQueryPanelApi,
 	queryEngine: QueryEngine,
 	input: ChartModifyInput,
 	options?: ChartModifyOptions,

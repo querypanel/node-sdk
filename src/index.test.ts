@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DatabaseAdapter } from "./adapters/types";
+import type { DatabaseDialect } from "./adapters/types";
 import { QueryPanelSdkAPI } from "./index";
 import { TEST_BASE_URL, TEST_ORG_ID, TEST_PRIVATE_KEY } from "./test-utils";
 
@@ -15,14 +16,14 @@ describe("QueryPanelSdkAPI", () => {
 		mockFetch = vi.fn();
 		sdk = new QueryPanelSdkAPI(mockBaseUrl, mockPrivateKey, mockOrgId, {
 			defaultTenantId: "tenant-1",
-			fetch: mockFetch,
+			fetch: mockFetch as unknown as typeof fetch,
 		});
 
 		mockAdapter = {
 			execute: vi.fn(),
 			validate: vi.fn(),
 			introspect: vi.fn(),
-			getDialect: vi.fn(() => "postgres"),
+			getDialect: vi.fn((): DatabaseDialect => "postgres"),
 		};
 	});
 
@@ -354,7 +355,7 @@ describe("QueryPanelSdkAPI", () => {
 			const result = await sdk.getChart("chart-1");
 
 			expect(result.id).toBe("chart-1");
-			expect(result.vega_lite_spec.data.values).toEqual([{ count: 5 }]);
+			expect((result.vega_lite_spec as { data: { values: unknown[] } }).data.values).toEqual([{ count: 5 }]);
 		});
 
 		it("should update chart", async () => {

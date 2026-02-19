@@ -1,4 +1,4 @@
-import type { ApiClient } from "../core/client";
+import type { IQueryPanelApi } from "../core/api-types";
 import type { QueryEngine } from "../core/query-engine";
 import * as charts from "./charts";
 
@@ -42,7 +42,7 @@ interface RequestOptions {
  * Simple pass-through to backend with optional chart data hydration
  */
 export async function createActiveChart(
-	client: ApiClient,
+	client: IQueryPanelApi,
 	body: ActiveChartCreateInput,
 	options?: RequestOptions,
 	signal?: AbortSignal,
@@ -59,7 +59,7 @@ export async function createActiveChart(
 }
 
 export async function listActiveCharts(
-	client: ApiClient,
+	client: IQueryPanelApi,
 	queryEngine: QueryEngine,
 	options?: ActiveChartListOptions,
 	signal?: AbortSignal,
@@ -110,7 +110,7 @@ export async function listActiveCharts(
 }
 
 export async function getActiveChart(
-	client: ApiClient,
+	client: IQueryPanelApi,
 	queryEngine: QueryEngine,
 	id: string,
 	options?: ActiveChartListOptions,
@@ -142,7 +142,7 @@ export async function getActiveChart(
 }
 
 export async function updateActiveChart(
-	client: ApiClient,
+	client: IQueryPanelApi,
 	id: string,
 	body: ActiveChartUpdateInput,
 	options?: RequestOptions,
@@ -160,7 +160,7 @@ export async function updateActiveChart(
 }
 
 export async function deleteActiveChart(
-	client: ApiClient,
+	client: IQueryPanelApi,
 	id: string,
 	options?: RequestOptions,
 	signal?: AbortSignal,
@@ -175,7 +175,7 @@ export async function deleteActiveChart(
 	);
 }
 
-function resolveTenantId(client: ApiClient, tenantId?: string): string {
+function resolveTenantId(client: IQueryPanelApi, tenantId?: string): string {
 	const resolved = tenantId ?? client.getDefaultTenantId();
 	if (!resolved) {
 		throw new Error(

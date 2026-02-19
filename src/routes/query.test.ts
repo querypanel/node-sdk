@@ -1,27 +1,26 @@
-import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { QueryEngine } from "../core/query-engine";
+import { createMockQueryPanelApi } from "../test-utils";
 import { anonymizeResults, ask } from "./query";
 
 describe("routes/query", () => {
-	let mockClient: {
-		post: Mock;
-		postWithHeaders: Mock;
-		getDefaultTenantId: Mock;
-	};
-	let mockQueryEngine: {
-		getDefaultDatabase: Mock;
-		getDatabaseMetadata: Mock;
-		mapGeneratedParams: Mock;
-		validateAndExecute: Mock;
+	let mockClient: ReturnType<typeof createMockQueryPanelApi>;
+	let mockQueryEngine: QueryEngine;
+	let mockQueryEngineSetup: {
+		getDefaultDatabase: ReturnType<typeof vi.fn>;
+		getDatabaseMetadata: ReturnType<typeof vi.fn>;
+		mapGeneratedParams: ReturnType<typeof vi.fn>;
+		validateAndExecute: ReturnType<typeof vi.fn>;
 	};
 
 	beforeEach(() => {
-		mockClient = {
+		mockClient = createMockQueryPanelApi({
 			post: vi.fn(),
 			postWithHeaders: vi.fn(),
 			getDefaultTenantId: vi.fn(() => "default-tenant"),
-		};
+		});
 
-		mockQueryEngine = {
+		mockQueryEngineSetup = {
 			getDefaultDatabase: vi.fn(() => "default-db"),
 			getDatabaseMetadata: vi.fn((name) =>
 				name === "default-db" || name === "custom-db" || name === "test-db"
@@ -37,7 +36,12 @@ describe("routes/query", () => {
 			}),
 			validateAndExecute: vi.fn(),
 		};
+		mockQueryEngine = mockQueryEngineSetup as unknown as QueryEngine;
 	});
+
+	function mockHeaders(): Headers {
+		return new Headers();
+	}
 
 	describe("ask", () => {
 		it("should generate SQL and execute query", async () => {
@@ -69,11 +73,11 @@ describe("routes/query", () => {
 
 			mockClient.postWithHeaders.mockResolvedValueOnce({
 				data: queryResponse,
-				headers: { get: vi.fn(() => null) },
+				headers: mockHeaders(),
 			});
 			mockClient.post.mockResolvedValueOnce(chartResponse);
 
-			mockQueryEngine.validateAndExecute.mockResolvedValue(executionResult);
+			mockQueryEngineSetup.validateAndExecute.mockResolvedValue(executionResult);
 
 			const result = await ask(
 				mockClient,
@@ -99,10 +103,10 @@ describe("routes/query", () => {
 					params: [],
 					dialect: "postgres",
 				},
-				headers: { get: vi.fn(() => null) },
+				headers: mockHeaders(),
 			});
 
-			mockQueryEngine.validateAndExecute.mockResolvedValue({
+			mockQueryEngineSetup.validateAndExecute.mockResolvedValue({
 				rows: [],
 				fields: [],
 			});
@@ -131,10 +135,10 @@ describe("routes/query", () => {
 					params: [],
 					dialect: "postgres",
 				},
-				headers: { get: vi.fn(() => null) },
+				headers: mockHeaders(),
 			});
 
-			mockQueryEngine.validateAndExecute.mockResolvedValue({
+			mockQueryEngineSetup.validateAndExecute.mockResolvedValue({
 				rows: [],
 				fields: [],
 			});
@@ -175,11 +179,11 @@ describe("routes/query", () => {
 			mockClient.postWithHeaders
 				.mockResolvedValueOnce({
 					data: queryResponse1,
-					headers: { get: vi.fn(() => null) },
+					headers: mockHeaders(),
 				})
 				.mockResolvedValueOnce({
 					data: queryResponse2,
-					headers: { get: vi.fn(() => null) },
+					headers: mockHeaders(),
 				});
 			mockClient.post.mockResolvedValueOnce(chartResponse);
 
@@ -210,7 +214,7 @@ describe("routes/query", () => {
 						params: [],
 						dialect: "postgres",
 					},
-					headers: { get: vi.fn(() => null) },
+					headers: mockHeaders(),
 				})
 				.mockResolvedValueOnce({
 					data: {
@@ -219,7 +223,7 @@ describe("routes/query", () => {
 						params: [],
 						dialect: "postgres",
 					},
-					headers: { get: vi.fn(() => null) },
+					headers: mockHeaders(),
 				});
 
 			mockQueryEngine.validateAndExecute
@@ -250,7 +254,7 @@ describe("routes/query", () => {
 					params: [],
 					dialect: "postgres",
 				},
-				headers: { get: vi.fn(() => null) },
+				headers: mockHeaders(),
 			});
 
 			mockQueryEngine.validateAndExecute.mockRejectedValue(
@@ -275,10 +279,10 @@ describe("routes/query", () => {
 					params: [],
 					dialect: "postgres",
 				},
-				headers: { get: vi.fn(() => null) },
+				headers: mockHeaders(),
 			});
 
-			mockQueryEngine.validateAndExecute.mockResolvedValue({
+			mockQueryEngineSetup.validateAndExecute.mockResolvedValue({
 				rows: [],
 				fields: [],
 			});
@@ -308,10 +312,10 @@ describe("routes/query", () => {
 						},
 					],
 				},
-				headers: { get: vi.fn(() => null) },
+				headers: mockHeaders(),
 			});
 
-			mockQueryEngine.validateAndExecute.mockResolvedValue({
+			mockQueryEngineSetup.validateAndExecute.mockResolvedValue({
 				rows: [],
 				fields: [],
 			});
@@ -336,14 +340,14 @@ describe("routes/query", () => {
 					params: [],
 					dialect: "postgres",
 				},
-				headers: { get: vi.fn(() => null) },
+				headers: mockHeaders(),
 			});
 			mockClient.post.mockResolvedValueOnce({
 				chart: { mark: "bar" },
 				notes: null,
 			});
 
-			mockQueryEngine.validateAndExecute.mockResolvedValue({
+			mockQueryEngineSetup.validateAndExecute.mockResolvedValue({
 				rows: [{ id: 1 }],
 				fields: ["id"],
 			});

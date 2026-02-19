@@ -1,4 +1,4 @@
-import type { ApiClient } from "../core/client";
+import type { IQueryPanelApi } from "../core/api-types";
 
 /**
  * A single session turn containing the question and optional SQL output.
@@ -107,7 +107,7 @@ interface RequestOptions {
  * Lists sessions with optional filtering and pagination.
  */
 export async function listSessions(
-	client: ApiClient,
+	client: IQueryPanelApi,
 	options?: SessionListOptions,
 	signal?: AbortSignal,
 ): Promise<PaginatedResponse<SdkSession>> {
@@ -139,7 +139,7 @@ export async function listSessions(
  * Retrieves a session by session_id, optionally including turns.
  */
 export async function getSession(
-	client: ApiClient,
+	client: IQueryPanelApi,
 	sessionId: string,
 	options?: SessionGetOptions,
 	signal?: AbortSignal,
@@ -163,7 +163,7 @@ export async function getSession(
  * Updates a session's metadata.
  */
 export async function updateSession(
-	client: ApiClient,
+	client: IQueryPanelApi,
 	sessionId: string,
 	body: SessionUpdateInput,
 	options?: RequestOptions,
@@ -184,7 +184,7 @@ export async function updateSession(
  * Deletes a session and its turn history.
  */
 export async function deleteSession(
-	client: ApiClient,
+	client: IQueryPanelApi,
 	sessionId: string,
 	options?: RequestOptions,
 	signal?: AbortSignal,
@@ -199,7 +199,7 @@ export async function deleteSession(
 	);
 }
 
-function resolveTenantId(client: ApiClient, tenantId?: string): string {
+function resolveTenantId(client: IQueryPanelApi, tenantId?: string): string {
 	const resolved = tenantId ?? client.getDefaultTenantId();
 	if (!resolved) {
 		throw new Error(

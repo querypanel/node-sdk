@@ -9,8 +9,14 @@ import {
 	type PostgresClientFn,
 } from "./adapters/postgres";
 import type { DatabaseAdapter, DatabaseDialect } from "./adapters/types";
+import type { IQueryPanelApi, RequestHandler } from "./core/api-types";
 import { ApiClient } from "./core/client";
-import { type DatabaseMetadata, QueryEngine } from "./core/query-engine";
+import { CallbackApiClient } from "./core/callback-client";
+import {
+	type DatabaseMetadata,
+	type ParamRecord,
+	QueryEngine,
+} from "./core/query-engine";
 import { QueryErrorCode, QueryPipelineError } from "./errors";
 import * as activeChartsRoute from "./routes/active-charts";
 import * as chartsRoute from "./routes/charts";
@@ -38,6 +44,15 @@ export type {
 	PostgresClientFn,
 	SchemaIntrospection,
 };
+
+// Re-export callback API types for in-process usage
+export type {
+	IQueryPanelApi,
+	RequestHandler,
+	RequestHandlerOptions,
+	RequestHandlerResult,
+} from "./core/api-types";
+export { CallbackApiClient } from "./core/callback-client";
 
 // Re-export from query-engine
 export type { ParamRecord, ParamValue } from "./core/query-engine";
@@ -128,27 +143,90 @@ export type {
 	VizSpecResult,
 } from "./types/vizspec";
 
+/** Options when constructing the SDK with HTTP (default) or with a custom API implementation. */
+export interface QueryPanelSdkAPIOptions {
+	defaultTenantId?: string;
+	additionalHeaders?: Record<string, string>;
+	fetch?: typeof fetch;
+	/**
+	 * Use a custom API implementation (e.g. CallbackApiClient) instead of HTTP.
+	 * When set, baseUrl and privateKey are ignored and no requests are sent to querypanel-sdk;
+	 * use this when calling the SDK from within your own API to avoid recursion.
+	 */
+	api?: IQueryPanelApi;
+}
+
 /**
  * Main SDK class - Thin orchestrator
- * Delegates to deep modules (ApiClient, QueryEngine, route modules)
+ * Delegates to deep modules (ApiClient or custom API, QueryEngine, route modules)
  * Following Ousterhout's principle: "Simple interface hiding complexity"
  */
 export class QueryPanelSdkAPI {
-	private readonly client: ApiClient;
+	private readonly client: IQueryPanelApi;
 	private readonly queryEngine: QueryEngine;
 
 	constructor(
 		baseUrl: string,
 		privateKey: string,
 		organizationId: string,
-		options?: {
-			defaultTenantId?: string;
-			additionalHeaders?: Record<string, string>;
-			fetch?: typeof fetch;
-		},
+		options?: QueryPanelSdkAPIOptions,
 	) {
-		this.client = new ApiClient(baseUrl, privateKey, organizationId, options);
+		if (options?.api) {
+			this.client = options.api;
+		} else {
+			if (!baseUrl) throw new Error("Base URL is required");
+			if (!privateKey) throw new Error("Private key is required");
+			if (!organizationId) throw new Error("Organization ID is required");
+			this.client = new ApiClient(baseUrl, privateKey, organizationId, {
+				defaultTenantId: options?.defaultTenantId,
+				additionalHeaders: options?.additionalHeaders,
+				fetch: options?.fetch,
+			});
+		}
+		if (!organizationId) throw new Error("Organization ID is required");
 		this.queryEngine = new QueryEngine();
+	}
+
+	/**
+	 * Create an SDK instance that uses a request callback instead of HTTP.
+	 * Use this when calling the SDK from within your own API so that "API" calls
+	 * are handled in-process (e.g. by invoking querypanel-sdk services directly)
+	 * and do not cause recursion.
+	 *
+	 * @param organizationId - Organization identifier
+	 * @param requestHandler - Callback invoked for each logical API request (method, path, body, tenantId, etc.)
+	 * @param options - Optional defaultTenantId
+	 * @returns QueryPanelSdkAPI instance; attach databases and call ask(), syncSchema(), etc. as usual
+	 *
+	 * @example
+	 * ```ts
+	 * const qp = QueryPanelSdkAPI.withCallbacks(
+	 *   process.env.ORGANIZATION_ID!,
+	 *   async (opts) => {
+	 *     // Call your in-process services (e.g. querypanel-sdk logic) instead of HTTP
+	 *     if (opts.path === '/query' || opts.path === '/v2/query') {
+	 *       const result = await yourSqlGenerator.generate(opts.body, opts.tenantId);
+	 *       return { data: result, headers: new Headers({ 'x-querypanel-session-id': result.sessionId }) };
+	 *     }
+	 *     if (opts.path === '/chart') return { data: await yourChartService.generate(opts.body) };
+	 *     // ... other paths
+	 *     return { data: await yourProxy(opts) };
+	 *   },
+	 *   { defaultTenantId: process.env.DEFAULT_TENANT_ID }
+	 * );
+	 * qp.attachPostgres('db', createClient, { tenantFieldName: 'tenant_id' });
+	 * const result = await qp.ask('Top 10 orders', { tenantId: 't1', database: 'db' });
+	 * ```
+	 */
+	static withCallbacks(
+		organizationId: string,
+		requestHandler: RequestHandler,
+		options?: { defaultTenantId?: string },
+	): QueryPanelSdkAPI {
+		const api = new CallbackApiClient(requestHandler, {
+			defaultTenantId: options?.defaultTenantId,
+		});
+		return new QueryPanelSdkAPI("", "", organizationId, { api });
 	}
 
 	// Database attachment methods
@@ -310,6 +388,62 @@ export class QueryPanelSdkAPI {
 			options,
 			signal,
 		);
+	}
+
+	// Embedded dashboard / JWT
+
+	/**
+	 * Creates a JWT for the given tenant (and optional userId, scopes).
+	 * Use this when you need to pass a token to the embed (e.g. frontend or demo).
+	 * Only available when using the HTTP client (ApiClient); not available when using withCallbacks.
+	 */
+	async createJwt(options: {
+		tenantId: string;
+		userId?: string;
+		scopes?: string[];
+	}): Promise<string> {
+		const tenantId = options.tenantId?.trim();
+		if (!tenantId) {
+			throw new Error("tenantId is required");
+		}
+		if (!(this.client instanceof ApiClient)) {
+			throw new Error(
+				"createJwt is not available when using withCallbacks. Use the SDK with baseUrl + privateKey to create JWTs.",
+			);
+		}
+		return await this.client.createJwt(
+			tenantId,
+			options.userId,
+			options.scopes,
+		);
+	}
+
+	/**
+	 * Runs SQL against an attached database with tenant isolation applied.
+	 * Used by embed run-sql (e.g. dashboard chart execution). Requires a database
+	 * to be attached (e.g. via attachPostgres) and options.tenantId.
+	 */
+	async runSqlForDashboard(
+		input: {
+			sql: string;
+			params?: Record<string, unknown>;
+			database?: string;
+		},
+		options: { tenantId: string },
+	): Promise<{ rows: unknown[]; fields: string[] }> {
+		const tenantId = options.tenantId?.trim();
+		if (!tenantId) {
+			throw new Error("tenantId is required");
+		}
+		const databaseName = input.database ?? "db";
+		const params = (input.params ?? {}) as ParamRecord;
+		const result = await this.queryEngine.validateAndExecute(
+			input.sql,
+			params,
+			databaseName,
+			tenantId,
+		);
+		return { rows: result.rows, fields: result.fields };
 	}
 
 	// VizSpec generation
