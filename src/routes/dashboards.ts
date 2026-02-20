@@ -1,4 +1,4 @@
-import type { ApiClient } from "../core/client";
+import type { IQueryPanelApi } from "../core/api-types";
 import type { PaginatedResponse, PaginationQuery } from "./charts";
 
 /**
@@ -84,33 +84,39 @@ interface RequestOptions {
 	scopes?: string[];
 }
 
-function resolveTenantId(client: ApiClient, tenantId?: string): string {
-	return tenantId ?? client["defaultTenantId"];
+function resolveTenantId(client: IQueryPanelApi, tenantId?: string): string {
+	const resolved = tenantId ?? client.getDefaultTenantId();
+	if (resolved === undefined) {
+		throw new Error("tenantId is required (option or client default)");
+	}
+	return resolved;
 }
 
 /**
  * Creates a new dashboard
  */
 export async function createDashboard(
-	client: ApiClient,
+	client: IQueryPanelApi,
 	body: DashboardCreateInput,
 	options?: RequestOptions,
 	signal?: AbortSignal,
 ): Promise<SdkDashboard> {
 	const tenantId = resolveTenantId(client, options?.tenantId);
-	return await client.post<SdkDashboard>("/dashboards", body, {
+	return await client.post<SdkDashboard>(
+		"/dashboards",
+		body,
 		tenantId,
-		userId: options?.userId,
-		scopes: options?.scopes,
+		options?.userId,
+		options?.scopes,
 		signal,
-	});
+	);
 }
 
 /**
  * Lists dashboards with pagination and filtering
  */
 export async function listDashboards(
-	client: ApiClient,
+	client: IQueryPanelApi,
 	options?: DashboardListOptions,
 	signal?: AbortSignal,
 ): Promise<PaginatedResponse<SdkDashboard>> {
@@ -135,12 +141,10 @@ export async function listDashboards(
 
 	return await client.get<PaginatedResponse<SdkDashboard>>(
 		`/dashboards?${params.toString()}`,
-		{
-			tenantId,
-			userId: options?.userId,
-			scopes: options?.scopes,
-			signal,
-		},
+		tenantId,
+		options?.userId,
+		options?.scopes,
+		signal,
 	);
 }
 
@@ -148,25 +152,26 @@ export async function listDashboards(
  * Gets a dashboard by ID
  */
 export async function getDashboard(
-	client: ApiClient,
+	client: IQueryPanelApi,
 	id: string,
 	options?: RequestOptions,
 	signal?: AbortSignal,
 ): Promise<SdkDashboard> {
 	const tenantId = resolveTenantId(client, options?.tenantId);
-	return await client.get<SdkDashboard>(`/dashboards/${id}`, {
+	return await client.get<SdkDashboard>(
+		`/dashboards/${id}`,
 		tenantId,
-		userId: options?.userId,
-		scopes: options?.scopes,
+		options?.userId,
+		options?.scopes,
 		signal,
-	});
+	);
 }
 
 /**
  * Gets a dashboard for a specific tenant (returns fork if exists, otherwise original)
  */
 export async function getDashboardForTenant(
-	client: ApiClient,
+	client: IQueryPanelApi,
 	id: string,
 	tenantId: string,
 	options?: RequestOptions,
@@ -177,12 +182,10 @@ export async function getDashboardForTenant(
 
 	return await client.get<SdkDashboard>(
 		`/dashboards/${id}/for-tenant?${params.toString()}`,
-		{
-			tenantId,
-			userId: options?.userId,
-			scopes: options?.scopes,
-			signal,
-		},
+		tenantId,
+		options?.userId,
+		options?.scopes,
+		signal,
 	);
 }
 
@@ -190,26 +193,28 @@ export async function getDashboardForTenant(
  * Updates a dashboard
  */
 export async function updateDashboard(
-	client: ApiClient,
+	client: IQueryPanelApi,
 	id: string,
 	body: DashboardUpdateInput,
 	options?: RequestOptions,
 	signal?: AbortSignal,
 ): Promise<SdkDashboard> {
 	const tenantId = resolveTenantId(client, options?.tenantId);
-	return await client.put<SdkDashboard>(`/dashboards/${id}`, body, {
+	return await client.put<SdkDashboard>(
+		`/dashboards/${id}`,
+		body,
 		tenantId,
-		userId: options?.userId,
-		scopes: options?.scopes,
+		options?.userId,
+		options?.scopes,
 		signal,
-	});
+	);
 }
 
 /**
  * Updates dashboard status (deploy/undeploy)
  */
 export async function updateDashboardStatus(
-	client: ApiClient,
+	client: IQueryPanelApi,
 	id: string,
 	status: "draft" | "deployed",
 	options?: RequestOptions,
@@ -219,12 +224,10 @@ export async function updateDashboardStatus(
 	return await client.patch<SdkDashboard>(
 		`/dashboards/${id}/status`,
 		{ status },
-		{
-			tenantId,
-			userId: options?.userId,
-			scopes: options?.scopes,
-			signal,
-		},
+		tenantId,
+		options?.userId,
+		options?.scopes,
+		signal,
 	);
 }
 
@@ -232,18 +235,19 @@ export async function updateDashboardStatus(
  * Deletes a dashboard
  */
 export async function deleteDashboard(
-	client: ApiClient,
+	client: IQueryPanelApi,
 	id: string,
 	options?: RequestOptions,
 	signal?: AbortSignal,
 ): Promise<void> {
 	const tenantId = resolveTenantId(client, options?.tenantId);
-	await client.delete(`/dashboards/${id}`, {
+	await client.delete(
+		`/dashboards/${id}`,
 		tenantId,
-		userId: options?.userId,
-		scopes: options?.scopes,
+		options?.userId,
+		options?.scopes,
 		signal,
-	});
+	);
 }
 
 // ============================================================================
@@ -254,45 +258,49 @@ export async function deleteDashboard(
  * Forks a dashboard for customer customization
  */
 export async function forkDashboard(
-	client: ApiClient,
+	client: IQueryPanelApi,
 	id: string,
 	input: DashboardForkInput,
 	options?: RequestOptions,
 	signal?: AbortSignal,
 ): Promise<SdkDashboard> {
 	const tenantId = resolveTenantId(client, options?.tenantId);
-	return await client.post<SdkDashboard>(`/dashboards/${id}/fork`, input, {
+	return await client.post<SdkDashboard>(
+		`/dashboards/${id}/fork`,
+		input,
 		tenantId,
-		userId: options?.userId,
-		scopes: options?.scopes,
+		options?.userId,
+		options?.scopes,
 		signal,
-	});
+	);
 }
 
 /**
  * Updates a customer fork
  */
 export async function updateFork(
-	client: ApiClient,
+	client: IQueryPanelApi,
 	forkId: string,
 	input: DashboardForkUpdateInput,
 	options?: RequestOptions,
 	signal?: AbortSignal,
 ): Promise<SdkDashboard> {
 	const tenantId = resolveTenantId(client, options?.tenantId);
-	return await client.put<SdkDashboard>(`/dashboards/forks/${forkId}`, input, {
+	return await client.put<SdkDashboard>(
+		`/dashboards/forks/${forkId}`,
+		input,
 		tenantId,
-		userId: options?.userId,
-		scopes: options?.scopes,
+		options?.userId,
+		options?.scopes,
 		signal,
-	});
+	);
 }
 
 /**
  * Rollbacks a fork to the original dashboard
  */
 export async function rollbackFork(
-	client: ApiClient,
+	client: IQueryPanelApi,
 	forkId: string,
 	tenantId: string,
 	options?: RequestOptions,
@@ -301,12 +309,10 @@ export async function rollbackFork(
 	return await client.post<SdkDashboard>(
 		`/dashboards/forks/${forkId}/rollback`,
 		{ tenant_id: tenantId },
-		{
-			tenantId,
-			userId: options?.userId,
-			scopes: options?.scopes,
-			signal,
-		},
+		tenantId,
+		options?.userId,
+		options?.scopes,
+		signal,
 	);
 }
 
@@ -314,7 +320,7 @@ export async function rollbackFork(
  * Deletes a customer fork
  */
 export async function deleteFork(
-	client: ApiClient,
+	client: IQueryPanelApi,
 	forkId: string,
 	tenantId: string,
 	options?: RequestOptions,
@@ -323,30 +329,29 @@ export async function deleteFork(
 	const params = new URLSearchParams();
 	params.set("tenant_id", tenantId);
 
-	await client.delete(`/dashboards/forks/${forkId}?${params.toString()}`, {
+	await client.delete(
+		`/dashboards/forks/${forkId}?${params.toString()}`,
 		tenantId,
-		userId: options?.userId,
-		scopes: options?.scopes,
+		options?.userId,
+		options?.scopes,
 		signal,
-	});
+	);
 }
 
 /**
  * Lists customer forks for a tenant
  */
 export async function listForksForTenant(
-	client: ApiClient,
+	client: IQueryPanelApi,
 	tenantId: string,
 	options?: RequestOptions,
 	signal?: AbortSignal,
 ): Promise<SdkDashboard[]> {
 	return await client.get<SdkDashboard[]>(
 		`/dashboards/customer/${tenantId}`,
-		{
-			tenantId,
-			userId: options?.userId,
-			scopes: options?.scopes,
-			signal,
-		},
+		tenantId,
+		options?.userId,
+		options?.scopes,
+		signal,
 	);
 }
