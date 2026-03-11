@@ -1,4 +1,11 @@
 import {
+	BigQueryAdapter,
+	type BigQueryAdapterOptions,
+	type BigQueryClientFn,
+	type BigQueryQueryRequest,
+	type BigQueryQueryResult,
+} from "./adapters/bigquery";
+import {
 	ClickHouseAdapter,
 	type ClickHouseAdapterOptions,
 	type ClickHouseClientFn,
@@ -29,13 +36,17 @@ import * as vizspecRoute from "./routes/vizspec";
 import type { SchemaIntrospection } from "./schema/types";
 
 // Re-export all public types
-export { ClickHouseAdapter, PostgresAdapter };
+export { BigQueryAdapter, ClickHouseAdapter, PostgresAdapter };
 
 // Re-export error types
 export type { QueryErrorCode as QueryErrorCodeType } from "./errors";
 export { QueryErrorCode, QueryPipelineError };
 
 export type {
+	BigQueryAdapterOptions,
+	BigQueryClientFn,
+	BigQueryQueryRequest,
+	BigQueryQueryResult,
 	ClickHouseAdapterOptions,
 	ClickHouseClientFn,
 	DatabaseAdapter,
@@ -275,6 +286,34 @@ export class QueryPanelSdkAPI {
 		const metadata: DatabaseMetadata = {
 			name,
 			dialect: "postgres",
+			description: options?.description,
+			tags: options?.tags,
+			tenantFieldName: options?.tenantFieldName,
+			tenantFieldType: options?.tenantFieldType ?? "String",
+			enforceTenantIsolation: options?.tenantFieldName
+				? (options?.enforceTenantIsolation ?? true)
+				: undefined,
+		};
+
+		this.queryEngine.attachDatabase(name, adapter, metadata);
+	}
+
+	attachBigQuery(
+		name: string,
+		clientFn: BigQueryClientFn,
+		options: BigQueryAdapterOptions & {
+			description?: string;
+			tags?: string[];
+			tenantFieldName?: string;
+			tenantFieldType?: string;
+			enforceTenantIsolation?: boolean;
+		},
+	): void {
+		const adapter = new BigQueryAdapter(clientFn, options);
+
+		const metadata: DatabaseMetadata = {
+			name,
+			dialect: "bigquery",
 			description: options?.description,
 			tags: options?.tags,
 			tenantFieldName: options?.tenantFieldName,

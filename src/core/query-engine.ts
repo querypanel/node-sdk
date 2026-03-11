@@ -163,6 +163,10 @@ export class QueryEngine {
 			const paramKey = tenantField;
 			params[paramKey] = tenantId;
 			tenantPredicate = `${tenantField} = {${tenantField}:${metadata.tenantFieldType ?? "String"}}`;
+		} else if (metadata.dialect === "bigquery") {
+			// BigQuery uses @paramName
+			params[tenantField] = tenantId;
+			tenantPredicate = `${tenantField} = @${tenantField}`;
 		} else {
 			// Postgres (and others): Use literal to avoid modifying 'params' object.
 			// Modifying 'params' can break positional parameter mapping (e.g. $1, $2)

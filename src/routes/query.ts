@@ -240,7 +240,7 @@ export async function ask(
 			queryEngine.getDefaultDatabase();
 		if (!dbName) {
 			throw new Error(
-				"No database attached. Call attachPostgres/attachClickhouse first.",
+				"No database attached. Call attachPostgres, attachClickhouse, or attachBigQuery first.",
 			);
 		}
 
