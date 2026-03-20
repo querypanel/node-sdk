@@ -32,10 +32,19 @@ describe("QueryPanelSdkAPI", () => {
 			expect(sdk).toBeInstanceOf(QueryPanelSdkAPI);
 		});
 
-		it("should throw error if parameters are missing", () => {
+		it("should throw error if base URL is missing", () => {
 			expect(
 				() => new QueryPanelSdkAPI("", mockPrivateKey, mockOrgId),
 			).toThrow();
+		});
+
+		it("should throw error if workspaceId is missing", () => {
+			expect(
+				() =>
+					new QueryPanelSdkAPI(mockBaseUrl, mockPrivateKey, "", {
+						fetch: mockFetch as unknown as typeof fetch,
+					}),
+			).toThrow("Workspace ID is required");
 		});
 	});
 

@@ -176,10 +176,13 @@ export class QueryPanelSdkAPI {
 	private readonly client: IQueryPanelApi;
 	private readonly queryEngine: QueryEngine;
 
+	/**
+	 * @param workspaceId - Workspace UUID (same value as your org in the dashboard). Passed to the API as JWT claim `organizationId`.
+	 */
 	constructor(
 		baseUrl: string,
 		privateKey: string,
-		organizationId: string,
+		workspaceId: string,
 		options?: QueryPanelSdkAPIOptions,
 	) {
 		if (options?.api) {
@@ -187,14 +190,13 @@ export class QueryPanelSdkAPI {
 		} else {
 			if (!baseUrl) throw new Error("Base URL is required");
 			if (!privateKey) throw new Error("Private key is required");
-			if (!organizationId) throw new Error("Organization ID is required");
-			this.client = new ApiClient(baseUrl, privateKey, organizationId, {
+			if (!workspaceId) throw new Error("Workspace ID is required");
+			this.client = new ApiClient(baseUrl, privateKey, workspaceId, {
 				defaultTenantId: options?.defaultTenantId,
 				additionalHeaders: options?.additionalHeaders,
 				fetch: options?.fetch,
 			});
 		}
-		if (!organizationId) throw new Error("Organization ID is required");
 		this.queryEngine = new QueryEngine();
 	}
 
@@ -204,7 +206,7 @@ export class QueryPanelSdkAPI {
 	 * are handled in-process (e.g. by invoking querypanel-sdk services directly)
 	 * and do not cause recursion.
 	 *
-	 * @param organizationId - Organization identifier
+	 * @param workspaceId - Workspace identifier (sent as `organizationId` in JWTs and API auth)
 	 * @param requestHandler - Callback invoked for each logical API request (method, path, body, tenantId, etc.)
 	 * @param options - Optional defaultTenantId
 	 * @returns QueryPanelSdkAPI instance; attach databases and call ask(), syncSchema(), etc. as usual
@@ -212,7 +214,7 @@ export class QueryPanelSdkAPI {
 	 * @example
 	 * ```ts
 	 * const qp = QueryPanelSdkAPI.withCallbacks(
-	 *   process.env.ORGANIZATION_ID!,
+	 *   process.env.QUERYPANEL_WORKSPACE_ID!,
 	 *   async (opts) => {
 	 *     // Call your in-process services (e.g. querypanel-sdk logic) instead of HTTP
 	 *     if (opts.path === '/query' || opts.path === '/v2/query') {
@@ -230,14 +232,14 @@ export class QueryPanelSdkAPI {
 	 * ```
 	 */
 	static withCallbacks(
-		organizationId: string,
+		workspaceId: string,
 		requestHandler: RequestHandler,
 		options?: { defaultTenantId?: string },
 	): QueryPanelSdkAPI {
 		const api = new CallbackApiClient(requestHandler, {
 			defaultTenantId: options?.defaultTenantId,
 		});
-		return new QueryPanelSdkAPI("", "", organizationId, { api });
+		return new QueryPanelSdkAPI("", "", workspaceId, { api });
 	}
 
 	// Database attachment methods

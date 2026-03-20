@@ -21,7 +21,7 @@ import { Pool } from "pg";
 const qp = new QueryPanelSdkAPI(
   process.env.QUERYPANEL_URL!,
   process.env.PRIVATE_KEY!,
-  process.env.ORGANIZATION_ID!,
+  process.env.QUERYPANEL_WORKSPACE_ID!,
   {
     defaultTenantId: process.env.DEFAULT_TENANT_ID,
   },
@@ -338,7 +338,7 @@ import { QueryPanelSdkAPI } from "https://esm.sh/@querypanel/sdk";
 const qp = new QueryPanelSdkAPI(
   Deno.env.get("QUERYPANEL_URL")!,
   Deno.env.get("PRIVATE_KEY")!,
-  Deno.env.get("ORGANIZATION_ID")!,
+  Deno.env.get("QUERYPANEL_WORKSPACE_ID")!,
 );
 
 // Use the SDK as normal - JWT signing works automatically
