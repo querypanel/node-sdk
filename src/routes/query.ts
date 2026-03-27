@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import type { ApiClient } from "../core/client";
+import type { IQueryPanelApi } from "../core/api-types";
 import type { ParamRecord, QueryEngine } from "../core/query-engine";
 import { type QueryErrorCode, QueryPipelineError } from "../errors";
 import type { VizSpec } from "../types/vizspec";
@@ -161,7 +161,7 @@ interface ServerVizSpecResponse {
  * Simple orchestration following Ousterhout's principle
  */
 export async function ask(
-	client: ApiClient,
+	client: IQueryPanelApi,
 	queryEngine: QueryEngine,
 	question: string,
 	options: AskOptions,
@@ -240,7 +240,7 @@ export async function ask(
 			queryEngine.getDefaultDatabase();
 		if (!dbName) {
 			throw new Error(
-				"No database attached. Call attachPostgres/attachClickhouse first.",
+				"No database attached. Call attachPostgres, attachClickhouse, or attachBigQuery first.",
 			);
 		}
 
@@ -366,7 +366,7 @@ export async function ask(
 	throw new Error("Unexpected error in ask retry loop");
 }
 
-function resolveTenantId(client: ApiClient, tenantId?: string): string {
+function resolveTenantId(client: IQueryPanelApi, tenantId?: string): string {
 	const resolved = tenantId ?? client.getDefaultTenantId();
 	if (!resolved) {
 		throw new Error(

@@ -135,46 +135,42 @@ export class PostgresAdapter implements DatabaseAdapter {
 	}
 
 	/**
-	 * Convert named params to positional array for PostgreSQL
-	 * PostgreSQL expects $1, $2, $3 in SQL and an array of values [val1, val2, val3]
+	 * Convert params to positional array for PostgreSQL.
+	 * PostgreSQL expects $1, $2, $3 in SQL and an array of values [val1, val2, val3].
+	 * When the record has numeric keys ("1", "2", "3") — e.g. from mapGeneratedParams —
+	 * use only those in order so placeholder order matches SQL. Otherwise fall back to
+	 * named keys in alphabetical order for backward compatibility.
 	 */
 	private convertNamedToPositionalParams(
 		params: Record<string, string | number | boolean | string[] | number[]>,
 	): unknown[] {
-		// Separate numeric and named keys
 		const numericKeys = Object.keys(params)
 			.filter((k) => /^\d+$/.test(k))
 			.map((k) => Number.parseInt(k, 10))
 			.sort((a, b) => a - b);
 
+		// If we have numeric keys, use only them (in order) so $1, $2, $3 match API order
+		if (numericKeys.length > 0) {
+			const positionalParams: unknown[] = [];
+			for (const key of numericKeys) {
+				let val: unknown = params[String(key)];
+				if (typeof val === "string") {
+					const match = val.match(/^<([a-zA-Z0-9_]+)>$/);
+					const namedKey = match?.[1];
+					if (namedKey && namedKey in params) {
+						val = params[namedKey as keyof typeof params];
+					}
+				}
+				positionalParams.push(val);
+			}
+			return positionalParams;
+		}
+
+		// Fallback: named keys only (e.g. caller built record without numeric keys)
 		const namedKeys = Object.keys(params)
 			.filter((k) => !/^\d+$/.test(k))
-			.sort(); // Alphabetical order for consistency
-
-		// Build positional array
-		const positionalParams: unknown[] = [];
-
-		// First, add values from numeric keys (in sorted order)
-		for (const key of numericKeys) {
-			let val: unknown = params[String(key)];
-			if (typeof val === "string") {
-				// Resolve placeholder tokens like `<tenant_id>` to their named values
-				const match = val.match(/^<([a-zA-Z0-9_]+)>$/);
-				const namedKey = match?.[1];
-				if (namedKey && namedKey in params) {
-					val = params[namedKey as keyof typeof params];
-				}
-			}
-			positionalParams.push(val);
-		}
-
-		// Then, add values from named keys (in alphabetical order)
-		for (const key of namedKeys) {
-			const val = params[key];
-			positionalParams.push(val);
-		}
-
-		return positionalParams;
+			.sort();
+		return namedKeys.map((key) => params[key]);
 	}
 
 	async validate(

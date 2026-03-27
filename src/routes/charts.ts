@@ -1,4 +1,4 @@
-import type { ApiClient } from "../core/client";
+import type { IQueryPanelApi } from "../core/api-types";
 import type { ParamRecord, QueryEngine } from "../core/query-engine";
 
 export interface SdkChart {
@@ -89,7 +89,7 @@ interface RequestOptions {
  * Simple pass-through to backend with optional data hydration
  */
 export async function createChart(
-	client: ApiClient,
+	client: IQueryPanelApi,
 	body: ChartCreateInput,
 	options?: RequestOptions,
 	signal?: AbortSignal,
@@ -106,7 +106,7 @@ export async function createChart(
 }
 
 export async function listCharts(
-	client: ApiClient,
+	client: IQueryPanelApi,
 	queryEngine: QueryEngine,
 	options?: ChartListOptions,
 	signal?: AbortSignal,
@@ -147,7 +147,7 @@ export async function listCharts(
 }
 
 export async function getChart(
-	client: ApiClient,
+	client: IQueryPanelApi,
 	queryEngine: QueryEngine,
 	id: string,
 	options?: RequestOptions,
@@ -167,7 +167,7 @@ export async function getChart(
 }
 
 export async function updateChart(
-	client: ApiClient,
+	client: IQueryPanelApi,
 	id: string,
 	body: ChartUpdateInput,
 	options?: RequestOptions,
@@ -185,7 +185,7 @@ export async function updateChart(
 }
 
 export async function deleteChart(
-	client: ApiClient,
+	client: IQueryPanelApi,
 	id: string,
 	options?: RequestOptions,
 	signal?: AbortSignal,
@@ -200,7 +200,7 @@ export async function deleteChart(
 	);
 }
 
-function resolveTenantId(client: ApiClient, tenantId?: string): string {
+function resolveTenantId(client: IQueryPanelApi, tenantId?: string): string {
 	const resolved = tenantId ?? client.getDefaultTenantId();
 	if (!resolved) {
 		throw new Error(

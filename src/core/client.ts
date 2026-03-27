@@ -71,6 +71,18 @@ export class ApiClient {
 		return this.defaultTenantId;
 	}
 
+	/**
+	 * Create a JWT for the given tenant (and optional userId, scopes).
+	 * Use this when you need to pass a token to the embed (e.g. frontend or demo).
+	 */
+	async createJwt(
+		tenantId: string,
+		userId?: string,
+		scopes?: string[],
+	): Promise<string> {
+		return await this.generateJWT(tenantId, userId, scopes);
+	}
+
 	async get<T>(
 		path: string,
 		tenantId: string,

@@ -160,7 +160,7 @@ After verifying the adapter works:
    import { createClient } from "@clickhouse/client";
 
    const client = createClient({ /* config */ });
-   const sdk = new QueryPanelSdkAPI(baseUrl, privateKey, orgId);
+   const sdk = new QueryPanelSdkAPI(baseUrl, privateKey, workspaceId);
 
    sdk.attachClickhouse("mydb", async (params) => {
      return await client.query(params);

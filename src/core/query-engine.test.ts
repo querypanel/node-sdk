@@ -121,7 +121,7 @@ describe("QueryEngine", () => {
 
 	describe("validateAndExecute", () => {
 		beforeEach(() => {
-			mockAdapter.validate.mockResolvedValue();
+			mockAdapter.validate.mockResolvedValue(undefined);
 			mockAdapter.execute.mockResolvedValue({
 				rows: [{ id: 1, name: "test" }],
 				fields: ["id", "name"],
@@ -313,14 +313,18 @@ describe("QueryEngine", () => {
 
 			queryEngine.attachDatabase("test-db", mockAdapter, metadata);
 
-			const result = await queryEngine.execute("SELECT * FROM users");
+			const result = await queryEngine.execute(
+				"SELECT * FROM users",
+				undefined,
+				"test-db",
+			);
 
 			expect(result).toEqual([]);
 		});
 	});
 
 	describe("mapGeneratedParams", () => {
-		it("should map params with name field", () => {
+		it("should map params with name field (numeric keys preserve SQL order for pg)", () => {
 			const params = [
 				{ name: "userId", value: 123 },
 				{ name: "active", value: true },
@@ -329,7 +333,9 @@ describe("QueryEngine", () => {
 			const result = queryEngine.mapGeneratedParams(params);
 
 			expect(result).toEqual({
+				"1": 123,
 				userId: 123,
+				"2": true,
 				active: true,
 			});
 		});
@@ -343,7 +349,9 @@ describe("QueryEngine", () => {
 			const result = queryEngine.mapGeneratedParams(params);
 
 			expect(result).toEqual({
+				"1": 123,
 				user_id: 123,
+				"2": "active",
 				status: "active",
 			});
 		});
@@ -383,7 +391,9 @@ describe("QueryEngine", () => {
 			const result = queryEngine.mapGeneratedParams(params);
 
 			expect(result).toEqual({
+				"1": "value1",
 				param1: "value1",
+				"3": "value3",
 				param3: "value3",
 			});
 		});
@@ -398,8 +408,11 @@ describe("QueryEngine", () => {
 			const result = queryEngine.mapGeneratedParams(params);
 
 			expect(result).toEqual({
+				"1": 123,
 				userId: 123,
+				"2": "active",
 				status: "active",
+				"3": 10,
 				count: 10,
 			});
 		});

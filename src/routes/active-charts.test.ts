@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
+import { createMockQueryPanelApi } from "../test-utils";
 import {
 	createActiveChart,
 	deleteActiveChart,
@@ -6,34 +7,27 @@ import {
 	listActiveCharts,
 	updateActiveChart,
 } from "./active-charts";
+import type { QueryEngine } from "../core/query-engine";
 import * as charts from "./charts";
 
 describe("routes/active-charts", () => {
-	let mockClient: {
-		post: Mock;
-		get: Mock;
-		put: Mock;
-		delete: Mock;
-		getDefaultTenantId: Mock;
-	};
-	let mockQueryEngine: {
-		execute: Mock;
-	};
+	let mockClient: ReturnType<typeof createMockQueryPanelApi>;
+	let mockQueryEngine: QueryEngine;
 
 	beforeEach(() => {
 		vi.restoreAllMocks();
 
-		mockClient = {
+		mockClient = createMockQueryPanelApi({
 			post: vi.fn(),
 			get: vi.fn(),
 			put: vi.fn(),
 			delete: vi.fn(),
 			getDefaultTenantId: vi.fn(() => "default-tenant"),
-		};
+		});
 
 		mockQueryEngine = {
 			execute: vi.fn(),
-		};
+		} as unknown as QueryEngine;
 	});
 
 	describe("createActiveChart", () => {

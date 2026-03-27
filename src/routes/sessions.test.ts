@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createMockQueryPanelApi } from "../test-utils";
 import {
 	deleteSession,
 	getSession,
@@ -7,20 +8,15 @@ import {
 } from "./sessions";
 
 describe("routes/sessions", () => {
-	let mockClient: {
-		get: Mock;
-		patch: Mock;
-		delete: Mock;
-		getDefaultTenantId: Mock;
-	};
+	let mockClient: ReturnType<typeof createMockQueryPanelApi>;
 
 	beforeEach(() => {
-		mockClient = {
+		mockClient = createMockQueryPanelApi({
 			get: vi.fn(),
 			patch: vi.fn(),
 			delete: vi.fn(),
 			getDefaultTenantId: vi.fn(() => "default-tenant"),
-		};
+		});
 	});
 
 	it("listSessions should call GET with query params", async () => {

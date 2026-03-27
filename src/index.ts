@@ -1,4 +1,11 @@
 import {
+	BigQueryAdapter,
+	type BigQueryAdapterOptions,
+	type BigQueryClientFn,
+	type BigQueryQueryRequest,
+	type BigQueryQueryResult,
+} from "./adapters/bigquery";
+import {
 	ClickHouseAdapter,
 	type ClickHouseAdapterOptions,
 	type ClickHouseClientFn,
@@ -9,11 +16,18 @@ import {
 	type PostgresClientFn,
 } from "./adapters/postgres";
 import type { DatabaseAdapter, DatabaseDialect } from "./adapters/types";
+import type { IQueryPanelApi, RequestHandler } from "./core/api-types";
 import { ApiClient } from "./core/client";
-import { type DatabaseMetadata, QueryEngine } from "./core/query-engine";
+import { CallbackApiClient } from "./core/callback-client";
+import {
+	type DatabaseMetadata,
+	type ParamRecord,
+	QueryEngine,
+} from "./core/query-engine";
 import { QueryErrorCode, QueryPipelineError } from "./errors";
 import * as activeChartsRoute from "./routes/active-charts";
 import * as chartsRoute from "./routes/charts";
+import * as dashboardsRoute from "./routes/dashboards";
 import * as ingestRoute from "./routes/ingest";
 import * as modifyRoute from "./routes/modify";
 import * as queryRoute from "./routes/query";
@@ -22,13 +36,17 @@ import * as vizspecRoute from "./routes/vizspec";
 import type { SchemaIntrospection } from "./schema/types";
 
 // Re-export all public types
-export { ClickHouseAdapter, PostgresAdapter };
+export { BigQueryAdapter, ClickHouseAdapter, PostgresAdapter };
 
 // Re-export error types
 export type { QueryErrorCode as QueryErrorCodeType } from "./errors";
 export { QueryErrorCode, QueryPipelineError };
 
 export type {
+	BigQueryAdapterOptions,
+	BigQueryClientFn,
+	BigQueryQueryRequest,
+	BigQueryQueryResult,
 	ClickHouseAdapterOptions,
 	ClickHouseClientFn,
 	DatabaseAdapter,
@@ -37,6 +55,15 @@ export type {
 	PostgresClientFn,
 	SchemaIntrospection,
 };
+
+// Re-export callback API types for in-process usage
+export type {
+	IQueryPanelApi,
+	RequestHandler,
+	RequestHandlerOptions,
+	RequestHandlerResult,
+} from "./core/api-types";
+export { CallbackApiClient } from "./core/callback-client";
 
 // Re-export from query-engine
 export type { ParamRecord, ParamValue } from "./core/query-engine";
@@ -56,6 +83,15 @@ export type {
 	PaginationQuery,
 	SdkChart,
 } from "./routes/charts";
+
+export type {
+	DashboardCreateInput,
+	DashboardForkInput,
+	DashboardForkUpdateInput,
+	DashboardListOptions,
+	DashboardUpdateInput,
+	SdkDashboard,
+} from "./routes/dashboards";
 // Re-export route types
 export type {
 	IngestResponse,
@@ -118,27 +154,92 @@ export type {
 	VizSpecResult,
 } from "./types/vizspec";
 
+/** Options when constructing the SDK with HTTP (default) or with a custom API implementation. */
+export interface QueryPanelSdkAPIOptions {
+	defaultTenantId?: string;
+	additionalHeaders?: Record<string, string>;
+	fetch?: typeof fetch;
+	/**
+	 * Use a custom API implementation (e.g. CallbackApiClient) instead of HTTP.
+	 * When set, baseUrl and privateKey are ignored and no requests are sent to querypanel-sdk;
+	 * use this when calling the SDK from within your own API to avoid recursion.
+	 */
+	api?: IQueryPanelApi;
+}
+
 /**
  * Main SDK class - Thin orchestrator
- * Delegates to deep modules (ApiClient, QueryEngine, route modules)
+ * Delegates to deep modules (ApiClient or custom API, QueryEngine, route modules)
  * Following Ousterhout's principle: "Simple interface hiding complexity"
  */
 export class QueryPanelSdkAPI {
-	private readonly client: ApiClient;
+	private readonly client: IQueryPanelApi;
 	private readonly queryEngine: QueryEngine;
 
+	/**
+	 * @param workspaceId - Workspace UUID (same value as your org in the dashboard). Passed to the API as JWT claim `organizationId`.
+	 */
 	constructor(
 		baseUrl: string,
 		privateKey: string,
-		organizationId: string,
-		options?: {
-			defaultTenantId?: string;
-			additionalHeaders?: Record<string, string>;
-			fetch?: typeof fetch;
-		},
+		workspaceId: string,
+		options?: QueryPanelSdkAPIOptions,
 	) {
-		this.client = new ApiClient(baseUrl, privateKey, organizationId, options);
+		if (options?.api) {
+			this.client = options.api;
+		} else {
+			if (!baseUrl) throw new Error("Base URL is required");
+			if (!privateKey) throw new Error("Private key is required");
+			if (!workspaceId) throw new Error("Workspace ID is required");
+			this.client = new ApiClient(baseUrl, privateKey, workspaceId, {
+				defaultTenantId: options?.defaultTenantId,
+				additionalHeaders: options?.additionalHeaders,
+				fetch: options?.fetch,
+			});
+		}
 		this.queryEngine = new QueryEngine();
+	}
+
+	/**
+	 * Create an SDK instance that uses a request callback instead of HTTP.
+	 * Use this when calling the SDK from within your own API so that "API" calls
+	 * are handled in-process (e.g. by invoking querypanel-sdk services directly)
+	 * and do not cause recursion.
+	 *
+	 * @param workspaceId - Workspace identifier (sent as `organizationId` in JWTs and API auth)
+	 * @param requestHandler - Callback invoked for each logical API request (method, path, body, tenantId, etc.)
+	 * @param options - Optional defaultTenantId
+	 * @returns QueryPanelSdkAPI instance; attach databases and call ask(), syncSchema(), etc. as usual
+	 *
+	 * @example
+	 * ```ts
+	 * const qp = QueryPanelSdkAPI.withCallbacks(
+	 *   process.env.QUERYPANEL_WORKSPACE_ID!,
+	 *   async (opts) => {
+	 *     // Call your in-process services (e.g. querypanel-sdk logic) instead of HTTP
+	 *     if (opts.path === '/query' || opts.path === '/v2/query') {
+	 *       const result = await yourSqlGenerator.generate(opts.body, opts.tenantId);
+	 *       return { data: result, headers: new Headers({ 'x-querypanel-session-id': result.sessionId }) };
+	 *     }
+	 *     if (opts.path === '/chart') return { data: await yourChartService.generate(opts.body) };
+	 *     // ... other paths
+	 *     return { data: await yourProxy(opts) };
+	 *   },
+	 *   { defaultTenantId: process.env.DEFAULT_TENANT_ID }
+	 * );
+	 * qp.attachPostgres('db', createClient, { tenantFieldName: 'tenant_id' });
+	 * const result = await qp.ask('Top 10 orders', { tenantId: 't1', database: 'db' });
+	 * ```
+	 */
+	static withCallbacks(
+		workspaceId: string,
+		requestHandler: RequestHandler,
+		options?: { defaultTenantId?: string },
+	): QueryPanelSdkAPI {
+		const api = new CallbackApiClient(requestHandler, {
+			defaultTenantId: options?.defaultTenantId,
+		});
+		return new QueryPanelSdkAPI("", "", workspaceId, { api });
 	}
 
 	// Database attachment methods
@@ -187,6 +288,34 @@ export class QueryPanelSdkAPI {
 		const metadata: DatabaseMetadata = {
 			name,
 			dialect: "postgres",
+			description: options?.description,
+			tags: options?.tags,
+			tenantFieldName: options?.tenantFieldName,
+			tenantFieldType: options?.tenantFieldType ?? "String",
+			enforceTenantIsolation: options?.tenantFieldName
+				? (options?.enforceTenantIsolation ?? true)
+				: undefined,
+		};
+
+		this.queryEngine.attachDatabase(name, adapter, metadata);
+	}
+
+	attachBigQuery(
+		name: string,
+		clientFn: BigQueryClientFn,
+		options: BigQueryAdapterOptions & {
+			description?: string;
+			tags?: string[];
+			tenantFieldName?: string;
+			tenantFieldType?: string;
+			enforceTenantIsolation?: boolean;
+		},
+	): void {
+		const adapter = new BigQueryAdapter(clientFn, options);
+
+		const metadata: DatabaseMetadata = {
+			name,
+			dialect: "bigquery",
 			description: options?.description,
 			tags: options?.tags,
 			tenantFieldName: options?.tenantFieldName,
@@ -300,6 +429,62 @@ export class QueryPanelSdkAPI {
 			options,
 			signal,
 		);
+	}
+
+	// Embedded dashboard / JWT
+
+	/**
+	 * Creates a JWT for the given tenant (and optional userId, scopes).
+	 * Use this when you need to pass a token to the embed (e.g. frontend or demo).
+	 * Only available when using the HTTP client (ApiClient); not available when using withCallbacks.
+	 */
+	async createJwt(options: {
+		tenantId: string;
+		userId?: string;
+		scopes?: string[];
+	}): Promise<string> {
+		const tenantId = options.tenantId?.trim();
+		if (!tenantId) {
+			throw new Error("tenantId is required");
+		}
+		if (!(this.client instanceof ApiClient)) {
+			throw new Error(
+				"createJwt is not available when using withCallbacks. Use the SDK with baseUrl + privateKey to create JWTs.",
+			);
+		}
+		return await this.client.createJwt(
+			tenantId,
+			options.userId,
+			options.scopes,
+		);
+	}
+
+	/**
+	 * Runs SQL against an attached database with tenant isolation applied.
+	 * Used by embed run-sql (e.g. dashboard chart execution). Requires a database
+	 * to be attached (e.g. via attachPostgres) and options.tenantId.
+	 */
+	async runSqlForDashboard(
+		input: {
+			sql: string;
+			params?: Record<string, unknown>;
+			database?: string;
+		},
+		options: { tenantId: string },
+	): Promise<{ rows: unknown[]; fields: string[] }> {
+		const tenantId = options.tenantId?.trim();
+		if (!tenantId) {
+			throw new Error("tenantId is required");
+		}
+		const databaseName = input.database ?? "db";
+		const params = (input.params ?? {}) as ParamRecord;
+		const result = await this.queryEngine.validateAndExecute(
+			input.sql,
+			params,
+			databaseName,
+			tenantId,
+		);
+		return { rows: result.rows, fields: result.fields };
 	}
 
 	// VizSpec generation
@@ -828,5 +1013,360 @@ export class QueryPanelSdkAPI {
 		signal?: AbortSignal,
 	): Promise<void> {
 		await activeChartsRoute.deleteActiveChart(this.client, id, options, signal);
+	}
+
+	// Dashboard CRUD operations
+
+	/**
+	 * Creates a new dashboard with BlockNote content.
+	 *
+	 * @param body - Dashboard configuration including name and BlockNote content
+	 * @param options - Tenant, user, and scope options
+	 * @param signal - Optional AbortSignal for cancellation
+	 * @returns Created dashboard
+	 *
+	 * @example
+	 * ```typescript
+	 * const dashboard = await qp.createDashboard({
+	 *   name: "Sales Dashboard",
+	 *   description: "Monthly sales metrics",
+	 *   content_json: blockNoteContent,
+	 *   editor_type: "blocknote",
+	 * }, { tenantId: "tenant_123" });
+	 * ```
+	 */
+	async createDashboard(
+		body: dashboardsRoute.DashboardCreateInput,
+		options?: { tenantId?: string; userId?: string; scopes?: string[] },
+		signal?: AbortSignal,
+	): Promise<dashboardsRoute.SdkDashboard> {
+		return await dashboardsRoute.createDashboard(
+			this.client,
+			body,
+			options,
+			signal,
+		);
+	}
+
+	/**
+	 * Lists dashboards with pagination and filtering.
+	 *
+	 * @param options - Filtering and pagination options
+	 * @param signal - Optional AbortSignal for cancellation
+	 * @returns Paginated list of dashboards
+	 *
+	 * @example
+	 * ```typescript
+	 * const dashboards = await qp.listDashboards({
+	 *   tenantId: "tenant_123",
+	 *   status: "deployed",
+	 *   pagination: { page: 1, limit: 10 },
+	 * });
+	 * ```
+	 */
+	async listDashboards(
+		options?: dashboardsRoute.DashboardListOptions,
+		signal?: AbortSignal,
+	): Promise<chartsRoute.PaginatedResponse<dashboardsRoute.SdkDashboard>> {
+		return await dashboardsRoute.listDashboards(this.client, options, signal);
+	}
+
+	/**
+	 * Gets a dashboard by ID.
+	 *
+	 * @param id - Dashboard ID
+	 * @param options - Tenant, user, and scope options
+	 * @param signal - Optional AbortSignal for cancellation
+	 * @returns Dashboard details
+	 *
+	 * @example
+	 * ```typescript
+	 * const dashboard = await qp.getDashboard("dash_123", {
+	 *   tenantId: "tenant_123",
+	 * });
+	 * ```
+	 */
+	async getDashboard(
+		id: string,
+		options?: { tenantId?: string; userId?: string; scopes?: string[] },
+		signal?: AbortSignal,
+	): Promise<dashboardsRoute.SdkDashboard> {
+		return await dashboardsRoute.getDashboard(
+			this.client,
+			id,
+			options,
+			signal,
+		);
+	}
+
+	/**
+	 * Gets a dashboard for a specific tenant.
+	 * Returns customer fork if exists, otherwise returns the original dashboard.
+	 *
+	 * @param id - Dashboard ID
+	 * @param tenantId - Tenant ID to check for fork
+	 * @param options - Additional auth options
+	 * @param signal - Optional AbortSignal for cancellation
+	 * @returns Dashboard (fork if exists, original otherwise)
+	 *
+	 * @example
+	 * ```typescript
+	 * const dashboard = await qp.getDashboardForTenant(
+	 *   "dash_123",
+	 *   "tenant_456",
+	 * );
+	 * ```
+	 */
+	async getDashboardForTenant(
+		id: string,
+		tenantId: string,
+		options?: { userId?: string; scopes?: string[] },
+		signal?: AbortSignal,
+	): Promise<dashboardsRoute.SdkDashboard> {
+		return await dashboardsRoute.getDashboardForTenant(
+			this.client,
+			id,
+			tenantId,
+			options,
+			signal,
+		);
+	}
+
+	/**
+	 * Updates a dashboard.
+	 *
+	 * @param id - Dashboard ID to update
+	 * @param body - Fields to update
+	 * @param options - Tenant, user, and scope options
+	 * @param signal - Optional AbortSignal for cancellation
+	 * @returns Updated dashboard
+	 *
+	 * @example
+	 * ```typescript
+	 * const updated = await qp.updateDashboard("dash_123", {
+	 *   name: "Updated Dashboard",
+	 *   content_json: newBlockNoteContent,
+	 * }, { tenantId: "tenant_123" });
+	 * ```
+	 */
+	async updateDashboard(
+		id: string,
+		body: dashboardsRoute.DashboardUpdateInput,
+		options?: { tenantId?: string; userId?: string; scopes?: string[] },
+		signal?: AbortSignal,
+	): Promise<dashboardsRoute.SdkDashboard> {
+		return await dashboardsRoute.updateDashboard(
+			this.client,
+			id,
+			body,
+			options,
+			signal,
+		);
+	}
+
+	/**
+	 * Updates dashboard status (deploy/undeploy).
+	 *
+	 * @param id - Dashboard ID
+	 * @param status - New status
+	 * @param options - Tenant, user, and scope options
+	 * @param signal - Optional AbortSignal for cancellation
+	 * @returns Updated dashboard
+	 *
+	 * @example
+	 * ```typescript
+	 * const deployed = await qp.updateDashboardStatus(
+	 *   "dash_123",
+	 *   "deployed",
+	 *   { tenantId: "tenant_123" },
+	 * );
+	 * ```
+	 */
+	async updateDashboardStatus(
+		id: string,
+		status: "draft" | "deployed",
+		options?: { tenantId?: string; userId?: string; scopes?: string[] },
+		signal?: AbortSignal,
+	): Promise<dashboardsRoute.SdkDashboard> {
+		return await dashboardsRoute.updateDashboardStatus(
+			this.client,
+			id,
+			status,
+			options,
+			signal,
+		);
+	}
+
+	/**
+	 * Deletes a dashboard.
+	 *
+	 * @param id - Dashboard ID to delete
+	 * @param options - Tenant, user, and scope options
+	 * @param signal - Optional AbortSignal for cancellation
+	 *
+	 * @example
+	 * ```typescript
+	 * await qp.deleteDashboard("dash_123", { tenantId: "tenant_123" });
+	 * ```
+	 */
+	async deleteDashboard(
+		id: string,
+		options?: { tenantId?: string; userId?: string; scopes?: string[] },
+		signal?: AbortSignal,
+	): Promise<void> {
+		await dashboardsRoute.deleteDashboard(this.client, id, options, signal);
+	}
+
+	// Dashboard Fork operations (Customer Customization)
+
+	/**
+	 * Forks a dashboard for customer customization (copy-on-write).
+	 *
+	 * Creates a full copy of the dashboard that the customer can edit independently.
+	 * The original dashboard remains unchanged.
+	 *
+	 * @param id - Dashboard ID to fork
+	 * @param input - Fork configuration with tenant_id
+	 * @param options - Additional auth options
+	 * @param signal - Optional AbortSignal for cancellation
+	 * @returns Forked dashboard
+	 *
+	 * @example
+	 * ```typescript
+	 * const fork = await qp.forkDashboard("dash_123", {
+	 *   tenant_id: "tenant_456",
+	 *   name: "Customer's Custom Dashboard",
+	 * });
+	 * ```
+	 */
+	async forkDashboard(
+		id: string,
+		input: dashboardsRoute.DashboardForkInput,
+		options?: { userId?: string; scopes?: string[] },
+		signal?: AbortSignal,
+	): Promise<dashboardsRoute.SdkDashboard> {
+		return await dashboardsRoute.forkDashboard(
+			this.client,
+			id,
+			input,
+			options,
+			signal,
+		);
+	}
+
+	/**
+	 * Updates a customer fork.
+	 *
+	 * @param forkId - Fork ID to update
+	 * @param input - Update data including tenant_id
+	 * @param options - Additional auth options
+	 * @param signal - Optional AbortSignal for cancellation
+	 * @returns Updated fork
+	 *
+	 * @example
+	 * ```typescript
+	 * const updated = await qp.updateFork("fork_123", {
+	 *   tenant_id: "tenant_456",
+	 *   content_json: newBlockNoteContent,
+	 * });
+	 * ```
+	 */
+	async updateFork(
+		forkId: string,
+		input: dashboardsRoute.DashboardForkUpdateInput,
+		options?: { userId?: string; scopes?: string[] },
+		signal?: AbortSignal,
+	): Promise<dashboardsRoute.SdkDashboard> {
+		return await dashboardsRoute.updateFork(
+			this.client,
+			forkId,
+			input,
+			options,
+			signal,
+		);
+	}
+
+	/**
+	 * Rollbacks a fork to the original dashboard.
+	 * This deletes the fork and the customer will see the original again.
+	 *
+	 * @param forkId - Fork ID to rollback
+	 * @param tenantId - Tenant ID
+	 * @param options - Additional auth options
+	 * @param signal - Optional AbortSignal for cancellation
+	 * @returns Original dashboard
+	 *
+	 * @example
+	 * ```typescript
+	 * const original = await qp.rollbackFork("fork_123", "tenant_456");
+	 * ```
+	 */
+	async rollbackFork(
+		forkId: string,
+		tenantId: string,
+		options?: { userId?: string; scopes?: string[] },
+		signal?: AbortSignal,
+	): Promise<dashboardsRoute.SdkDashboard> {
+		return await dashboardsRoute.rollbackFork(
+			this.client,
+			forkId,
+			tenantId,
+			options,
+			signal,
+		);
+	}
+
+	/**
+	 * Deletes a customer fork.
+	 *
+	 * @param forkId - Fork ID to delete
+	 * @param tenantId - Tenant ID
+	 * @param options - Additional auth options
+	 * @param signal - Optional AbortSignal for cancellation
+	 *
+	 * @example
+	 * ```typescript
+	 * await qp.deleteFork("fork_123", "tenant_456");
+	 * ```
+	 */
+	async deleteFork(
+		forkId: string,
+		tenantId: string,
+		options?: { userId?: string; scopes?: string[] },
+		signal?: AbortSignal,
+	): Promise<void> {
+		await dashboardsRoute.deleteFork(
+			this.client,
+			forkId,
+			tenantId,
+			options,
+			signal,
+		);
+	}
+
+	/**
+	 * Lists all customer forks for a tenant.
+	 *
+	 * @param tenantId - Tenant ID
+	 * @param options - Additional auth options
+	 * @param signal - Optional AbortSignal for cancellation
+	 * @returns Array of forks
+	 *
+	 * @example
+	 * ```typescript
+	 * const forks = await qp.listForksForTenant("tenant_456");
+	 * ```
+	 */
+	async listForksForTenant(
+		tenantId: string,
+		options?: { userId?: string; scopes?: string[] },
+		signal?: AbortSignal,
+	): Promise<dashboardsRoute.SdkDashboard[]> {
+		return await dashboardsRoute.listForksForTenant(
+			this.client,
+			tenantId,
+			options,
+			signal,
+		);
 	}
 }

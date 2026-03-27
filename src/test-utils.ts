@@ -1,6 +1,39 @@
+import { vi, type Mock } from "vitest";
+import type { IQueryPanelApi } from "./core/api-types";
+
 /**
  * Test utilities and fixtures
  */
+
+/** Mock API client: IQueryPanelApi with Mock methods so tests can use .mockResolvedValue etc. Assignable to IQueryPanelApi. */
+export type MockQueryPanelApi = IQueryPanelApi & {
+	getDefaultTenantId: Mock<() => string | undefined>;
+	get: Mock<(...args: unknown[]) => Promise<unknown>>;
+	post: Mock<(...args: unknown[]) => Promise<unknown>>;
+	postWithHeaders: Mock<(...args: unknown[]) => Promise<{ data: unknown; headers: Headers }>>;
+	put: Mock<(...args: unknown[]) => Promise<unknown>>;
+	patch: Mock<(...args: unknown[]) => Promise<unknown>>;
+	delete: Mock<(...args: unknown[]) => Promise<unknown>>;
+};
+
+/**
+ * Creates a mock that satisfies IQueryPanelApi. Override the methods you need in tests.
+ * Return type is MockQueryPanelApi so you can use mockClient.post.mockResolvedValue(...) etc.
+ */
+export function createMockQueryPanelApi(
+	overrides?: Partial<IQueryPanelApi>,
+): MockQueryPanelApi {
+	return {
+		getDefaultTenantId: vi.fn(),
+		get: vi.fn(),
+		post: vi.fn(),
+		postWithHeaders: vi.fn(),
+		put: vi.fn(),
+		patch: vi.fn(),
+		delete: vi.fn(),
+		...overrides,
+	} as MockQueryPanelApi;
+}
 
 /**
  * Valid RSA private key for testing JWT generation

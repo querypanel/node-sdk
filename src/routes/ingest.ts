@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import type { ApiClient } from "../core/client";
+import type { IQueryPanelApi } from "../core/api-types";
 import type { QueryEngine } from "../core/query-engine";
 import type { SchemaIntrospection } from "../schema/types";
 
@@ -52,7 +52,7 @@ interface SchemaIngestRequest {
  * Handles introspection and sync to backend
  */
 export async function syncSchema(
-	client: ApiClient,
+	client: IQueryPanelApi,
 	queryEngine: QueryEngine,
 	databaseName: string,
 	options: SchemaSyncOptions,
@@ -87,7 +87,7 @@ export async function syncSchema(
 	return response;
 }
 
-function resolveTenantId(client: ApiClient, tenantId?: string): string {
+function resolveTenantId(client: IQueryPanelApi, tenantId?: string): string {
 	const resolved = tenantId ?? client.getDefaultTenantId();
 	if (!resolved) {
 		throw new Error(
