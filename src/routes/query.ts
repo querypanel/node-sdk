@@ -65,6 +65,10 @@ export interface AskOptions {
 	 * - "v2": Improved pipeline with intent planning, hybrid retrieval, schema linking, and SQL reflection
 	 */
 	pipeline?: "v1" | "v2";
+	/**
+	 * Optional OpenAI model id for v2 SQL generation. Omit to use server default.
+	 */
+	model?: string;
 }
 
 /**
@@ -208,6 +212,7 @@ export async function ask(
 				...(tenantSettings ? { tenant_settings: tenantSettings } : {}),
 				...(databaseName ? { database: databaseName } : {}),
 				...(metadata?.dialect ? { dialect: metadata.dialect } : {}),
+				...(options.model?.trim() ? { model: options.model.trim() } : {}),
 			},
 			tenantId,
 			options.userId,
