@@ -362,6 +362,36 @@ describe("routes/query", () => {
 				max_retries: 5,
 			});
 		});
+
+		it("should send system_prompt only for v2 pipeline", async () => {
+			mockClient.postWithHeaders.mockResolvedValueOnce({
+				data: {
+					success: true,
+					sql: "SELECT 1",
+					params: [],
+					dialect: "postgres",
+				},
+				headers: mockHeaders(),
+			});
+
+			mockQueryEngineSetup.validateAndExecute.mockResolvedValue({
+				rows: [],
+				fields: [],
+			});
+
+			await ask(mockClient, mockQueryEngine, "test", {
+				tenantId: "tenant-1",
+				pipeline: "v2",
+				systemPrompt: "Always apply tenant retention window: last 30 days.",
+			});
+
+			const call = mockClient.postWithHeaders.mock.calls[0];
+			expect(call[0]).toBe("/v2/query");
+			expect(call[1]).toMatchObject({
+				question: "test",
+				system_prompt: "Always apply tenant retention window: last 30 days.",
+			});
+		});
 	});
 
 	describe("anonymizeResults", () => {

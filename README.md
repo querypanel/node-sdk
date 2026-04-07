@@ -80,6 +80,19 @@ console.table(response.rows);
 console.log(response.chart.vegaLiteSpec);
 ```
 
+### Custom system instructions (v2 pipeline)
+
+If you need to enforce tenant-specific policies that should apply to every query (for example, data retention windows), you can inject additional **system prompt** instructions into the v2 pipeline:
+
+```ts
+const response = await qp.ask("Revenue by product", {
+  tenantId: "tenant_123",
+  database: "analytics",
+  pipeline: "v2",
+  systemPrompt: "Retention policy: only query data from the last 30 days.",
+});
+```
+
 ## Session History & Context-Aware Queries
 
 The SDK can link related questions into a session so follow-ups like “filter that to Europe” use prior context. The backend generates a QueryPanel session ID for every query and returns it in the response so you can reuse it.

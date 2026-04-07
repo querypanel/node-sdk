@@ -69,6 +69,18 @@ export interface AskOptions {
 	 * Optional OpenAI model id for v2 SQL generation. Omit to use server default.
 	 */
 	model?: string;
+	/**
+	 * Optional additional system prompt text for the v2 pipeline.
+	 *
+	 * This is appended to the backend's SQL generator/reflection system prompts
+	 * (it does not change tenant isolation mechanics; it only guides the LLM).
+	 *
+	 * Use this for tenant-specific policies (e.g. retention windows) that must
+	 * be enforced on every query.
+	 *
+	 * Only sent when `pipeline: "v2"`.
+	 */
+	systemPrompt?: string;
 }
 
 /**
@@ -213,6 +225,9 @@ export async function ask(
 				...(databaseName ? { database: databaseName } : {}),
 				...(metadata?.dialect ? { dialect: metadata.dialect } : {}),
 				...(options.model?.trim() ? { model: options.model.trim() } : {}),
+				...(options.pipeline === "v2" && options.systemPrompt?.trim()
+					? { system_prompt: options.systemPrompt.trim() }
+					: {}),
 			},
 			tenantId,
 			options.userId,
