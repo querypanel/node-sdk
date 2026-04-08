@@ -194,6 +194,10 @@ export interface ChartModifyOptions {
 	 * the original question with modification hints.
 	 */
 	querypanelSessionId?: string;
+	/**
+	 * Restrict VizSpec chart types for this call (merged with SDK default from constructor when omitted).
+	 */
+	supportedChartTypes?: ChartType[];
 }
 
 /**
@@ -658,6 +662,9 @@ export async function modifyChart(
 					query_id: queryId,
 					// Include viz hints for the chart generator
 					...(hasVizMods ? { encoding_hints: vizHintsForChart } : {}),
+					...(options?.supportedChartTypes?.length
+						? { supported_chart_types: options.supportedChartTypes }
+						: {}),
 				},
 				tenantId,
 				options?.userId,

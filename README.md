@@ -93,6 +93,31 @@ const response = await qp.ask("Revenue by product", {
 });
 ```
 
+### Restricting VizSpec chart types
+
+If your UI only supports a subset of VizSpec chart kinds (for example no area or scatter), set **`supportedChartTypes`** on the SDK constructor or on each `ask` / `modifyChart` call. The API’s `/vizspec` step then steers generation toward allowed types only (`line`, `bar`, `column`, `area`, `scatter`, `pie`). This applies whenever you use **`chartType: "vizspec"`** (including the default v2 flow after SQL runs).
+
+```ts
+import { QueryPanelSdkAPI, ALL_VIZ_CHART_TYPES, type ChartType } from "@querypanel/sdk";
+
+const allowed: ChartType[] = ["line", "bar", "column", "pie"];
+
+const qp = new QueryPanelSdkAPI(url, privateKey, workspaceId, {
+  supportedChartTypes: allowed,
+});
+
+// Or per request:
+await qp.ask("Revenue by month", {
+  tenantId: "t1",
+  database: "analytics",
+  chartType: "vizspec",
+  pipeline: "v2",
+  supportedChartTypes: allowed,
+});
+```
+
+Use `ALL_VIZ_CHART_TYPES` when you need the full list (for example to derive `allowed` with `.filter(...)`).
+
 ## Session History & Context-Aware Queries
 
 The SDK can link related questions into a session so follow-ups like “filter that to Europe” use prior context. The backend generates a QueryPanel session ID for every query and returns it in the response so you can reuse it.

@@ -75,6 +75,16 @@ export type ChartType =
   | 'scatter'
   | 'pie';
 
+/** Full VizSpec chart catalog; use when building a custom `supportedChartTypes` list. */
+export const ALL_VIZ_CHART_TYPES: readonly ChartType[] = [
+  'line',
+  'bar',
+  'column',
+  'area',
+  'scatter',
+  'pie',
+] as const;
+
 export type StackingMode = 'none' | 'stacked' | 'percent';
 
 export interface ChartEncoding {

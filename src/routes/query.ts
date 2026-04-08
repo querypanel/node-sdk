@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import type { IQueryPanelApi } from "../core/api-types";
 import type { ParamRecord, QueryEngine } from "../core/query-engine";
 import { type QueryErrorCode, QueryPipelineError } from "../errors";
-import type { VizSpec } from "../types/vizspec";
+import type { ChartType, VizSpec } from "../types/vizspec";
 
 /**
  * Context document returned by the query pipeline.
@@ -81,6 +81,11 @@ export interface AskOptions {
 	 * Only sent when `pipeline: "v2"`.
 	 */
 	systemPrompt?: string;
+	/**
+	 * Restrict VizSpec `chartType` values when `chartType` is `"vizspec"`.
+	 * Sent to `POST /vizspec` as `supported_chart_types`. Omitted allows all standard types.
+	 */
+	supportedChartTypes?: ChartType[];
 }
 
 /**
@@ -300,6 +305,11 @@ export async function ask(
 							rows: anonymizeResults(rows),
 							max_retries: options.chartMaxRetries ?? 3,
 							query_id: queryResponse.data.queryId,
+							...(options.supportedChartTypes?.length
+								? {
+										supported_chart_types: options.supportedChartTypes,
+									}
+								: {}),
 						},
 						tenantId,
 						options.userId,

@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import type { ApiClient } from "../core/client";
 import type { IQueryPanelApi } from "../core/api-types";
-import type { EncodingHints, VizSpec } from "../types/vizspec";
+import type { ChartType, EncodingHints, VizSpec } from "../types/vizspec";
 
 export interface VizSpecGenerateInput {
   question: string;
@@ -16,6 +16,8 @@ export interface VizSpecGenerateInput {
    * When provided, these guide the LLM to generate specific visualization configurations.
    */
   encoding_hints?: EncodingHints;
+  /** When set, VizSpec kind "chart" may only use these chart types (API: supported_chart_types). */
+  supported_chart_types?: ChartType[];
 }
 
 export interface VizSpecGenerateOptions {
@@ -54,6 +56,9 @@ export async function generateVizSpec(
       max_retries: options?.maxRetries ?? input.max_retries ?? 3,
       query_id: input.query_id,
       encoding_hints: input.encoding_hints,
+      ...(input.supported_chart_types?.length
+        ? { supported_chart_types: input.supported_chart_types }
+        : {}),
     },
     tenantId,
     options?.userId,

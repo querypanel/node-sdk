@@ -34,6 +34,7 @@ import * as queryRoute from "./routes/query";
 import * as sessionsRoute from "./routes/sessions";
 import * as vizspecRoute from "./routes/vizspec";
 import type { SchemaIntrospection } from "./schema/types";
+import type { ChartType } from "./types/vizspec";
 
 // Re-export all public types
 export { BigQueryAdapter, ClickHouseAdapter, PostgresAdapter };
@@ -130,6 +131,9 @@ export type {
 	VizSpecResponse,
 } from "./routes/vizspec";
 // Re-export VizSpec types
+export {
+	ALL_VIZ_CHART_TYPES,
+} from "./types/vizspec";
 export type {
 	AggregateOp,
 	AxisField,
@@ -165,6 +169,12 @@ export interface QueryPanelSdkAPIOptions {
 	 * use this when calling the SDK from within your own API to avoid recursion.
 	 */
 	api?: IQueryPanelApi;
+	/**
+	 * Restrict VizSpec chart kinds (when using `chartType: "vizspec"`).
+	 * Omitted means all types: line, bar, column, area, scatter, pie.
+	 * Per-request `supportedChartTypes` on `ask` / `modifyChart` overrides this default.
+	 */
+	supportedChartTypes?: ChartType[];
 }
 
 /**
@@ -175,6 +185,7 @@ export interface QueryPanelSdkAPIOptions {
 export class QueryPanelSdkAPI {
 	private readonly client: IQueryPanelApi;
 	private readonly queryEngine: QueryEngine;
+	private readonly supportedChartTypes?: ChartType[];
 
 	/**
 	 * @param workspaceId - Workspace UUID (same value as your org in the dashboard). Passed to the API as JWT claim `organizationId`.
@@ -198,6 +209,7 @@ export class QueryPanelSdkAPI {
 			});
 		}
 		this.queryEngine = new QueryEngine();
+		this.supportedChartTypes = options?.supportedChartTypes;
 	}
 
 	/**
@@ -234,12 +246,15 @@ export class QueryPanelSdkAPI {
 	static withCallbacks(
 		workspaceId: string,
 		requestHandler: RequestHandler,
-		options?: { defaultTenantId?: string },
+		options?: { defaultTenantId?: string; supportedChartTypes?: ChartType[] },
 	): QueryPanelSdkAPI {
 		const api = new CallbackApiClient(requestHandler, {
 			defaultTenantId: options?.defaultTenantId,
 		});
-		return new QueryPanelSdkAPI("", "", workspaceId, { api });
+		return new QueryPanelSdkAPI("", "", workspaceId, {
+			api,
+			supportedChartTypes: options?.supportedChartTypes,
+		});
 	}
 
 	// Database attachment methods
@@ -426,7 +441,11 @@ export class QueryPanelSdkAPI {
 			this.client,
 			this.queryEngine,
 			question,
-			options,
+			{
+				...options,
+				supportedChartTypes:
+					options.supportedChartTypes ?? this.supportedChartTypes,
+			},
 			signal,
 		);
 	}
@@ -518,7 +537,11 @@ export class QueryPanelSdkAPI {
 	): Promise<vizspecRoute.VizSpecResponse> {
 		return await vizspecRoute.generateVizSpec(
 			this.client,
-			input,
+			{
+				...input,
+				supported_chart_types:
+					input.supported_chart_types ?? this.supportedChartTypes,
+			},
 			options,
 			signal,
 		);
@@ -592,7 +615,15 @@ export class QueryPanelSdkAPI {
 			this.client,
 			this.queryEngine,
 			input,
-			options,
+			options
+				? {
+						...options,
+						supportedChartTypes:
+							options.supportedChartTypes ?? this.supportedChartTypes,
+					}
+				: this.supportedChartTypes
+					? { supportedChartTypes: this.supportedChartTypes }
+					: undefined,
 			signal,
 		);
 	}
