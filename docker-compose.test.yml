@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  postgres_test:
+    image: postgres:17-alpine
+    container_name: sdk-test-postgres
+    environment:
+      POSTGRES_DB: test_db
+      POSTGRES_USER: test_user
+      POSTGRES_PASSWORD: test_password
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test_user -d test_db"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - ./test/fixtures/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql
+
+  clickhouse_test:
+    image: clickhouse/clickhouse-server:24-alpine
+    container_name: sdk-test-clickhouse
+    environment:
+      CLICKHOUSE_DB: test_db
+      CLICKHOUSE_USER: test_user
+      CLICKHOUSE_PASSWORD: test_password
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ports:
+      - "8124:8123"
+      - "9001:9000"
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - ./test/fixtures/clickhouse-init.sql:/docker-entrypoint-initdb.d/init.sql

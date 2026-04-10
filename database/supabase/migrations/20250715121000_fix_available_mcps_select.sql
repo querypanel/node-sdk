@@ -1,1 +1,0 @@
-GRANT SELECT ON available_mcps TO authenticated; 

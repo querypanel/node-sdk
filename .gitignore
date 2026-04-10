@@ -1,24 +1,47 @@
-node_modules/
-.DS_Store
+# dependencies (bun install)
+node_modules
 
-# Build and cache output
-.turbo/
-dist/
-coverage/
-storybook-static/
+# output
+out
+dist
+*.tgz
 
-# Env files
+# code coverage
+coverage
+*.lcov
+
+# logs
+logs
+_.log
+report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
+
+# dotenv environment variable files
 .env
+.env.development.local
+.env.test.local
+.env.production.local
 .env.local
-.env.*.local
 
-# Workspace local artifacts
-.worktrees/
-.migration-backup/
+# caches
+.eslintcache
+.cache
+*.tsbuildinfo
 
-# Keep nested .git dirs out of root tracking if present during migration.
-admin/.git
-api/.git
-database/.git
-admin/packages/react-sdk/.git
-admin/packages/node-sdk/.git
+# IntelliJ based IDEs
+.idea
+
+# Finder (MacOS) folder config
+.DS_Store
+.env.local
+*.json
+!package.json
+!package-lock.json
+!bun.lockb
+!node-sdk/package.json
+!node-sdk/tsconfig.json
+!node-sdk/tsup.config.ts
+!node-sdk/tsup.config.cjs
+
+.vercel
+jwt-keys
+supabase/.temp
