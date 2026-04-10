@@ -1,0 +1,97 @@
+import { Meta } from "@storybook/blocks";
+
+<Meta title="Introduction" />
+
+# QueryPanel React SDK
+
+React components for building AI-powered data visualization interfaces.
+
+## Installation
+
+```bash
+npm install @querypanel/react-sdk
+```
+
+## Quick Start
+
+```tsx
+import {
+  QueryPanelProvider,
+  QueryInput,
+  QueryResult,
+  useQueryPanel,
+} from "@querypanel/react-sdk";
+
+function App() {
+  return (
+    <QueryPanelProvider
+      config={{
+        askEndpoint: "/api/ask",
+        modifyEndpoint: "/api/modify",
+      }}
+    >
+      <Dashboard />
+    </QueryPanelProvider>
+  );
+}
+
+function Dashboard() {
+  const { query, result, isLoading, ask, modify } = useQueryPanel();
+
+  return (
+    <div>
+      <QueryInput onSubmit={ask} isLoading={isLoading} />
+      {result && <QueryResult result={result} onModify={modify} />}
+    </div>
+  );
+}
+```
+
+## Components
+
+### Input & Controls
+- **QueryInput** - Search input with prompt chips
+- **ChartControls** - Chart type, axes, and time controls
+
+### Display
+- **VegaChart** - Renders Vega-Lite specifications
+- **DataTable** - Styled results table
+- **QueryResult** - Combined chart, SQL, and table display
+
+### States
+- **LoadingState** - Loading indicator
+- **EmptyState** - Initial empty state
+- **ErrorState** - Error display
+
+## Theming
+
+Built-in color presets: `default`, `sunset`, `emerald`, `ocean`
+
+```tsx
+import { getColorsByPreset } from "@querypanel/react-sdk/themes";
+
+const colors = getColorsByPreset("sunset");
+
+<VegaChart spec={spec} colors={colors} />
+```
+
+## White-Labeling
+
+All components accept a `colors` prop for custom styling:
+
+```tsx
+<QueryInput
+  colors={{
+    primary: "#YOUR_BRAND_COLOR",
+    secondary: "#SECONDARY_COLOR",
+    text: "#ffffff",
+    // ...
+  }}
+/>
+```
+
+## Links
+
+- [npm Package](https://www.npmjs.com/package/@querypanel/react-sdk)
+- [GitHub Repository](https://github.com/querypanel/react-sdk)
+- [QueryPanel Website](https://querypanel.io)
