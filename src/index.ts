@@ -69,6 +69,7 @@ export { CallbackApiClient } from "./core/callback-client";
 // Re-export from query-engine
 export type { ParamRecord, ParamValue } from "./core/query-engine";
 export type {
+	ActiveChartBulkGetResponse,
 	ActiveChartCreateInput,
 	ActiveChartListOptions,
 	ActiveChartUpdateInput,
@@ -955,6 +956,38 @@ export class QueryPanelSdkAPI {
 		return await activeChartsRoute.listActiveCharts(
 			this.client,
 			this.queryEngine,
+			options,
+			signal,
+		);
+	}
+
+	/**
+	 * Lists all active charts without pagination.
+	 */
+	async listAllActiveCharts(
+		options?: activeChartsRoute.ActiveChartListOptions,
+		signal?: AbortSignal,
+	): Promise<activeChartsRoute.SdkActiveChart[]> {
+		return await activeChartsRoute.listAllActiveCharts(
+			this.client,
+			this.queryEngine,
+			options,
+			signal,
+		);
+	}
+
+	/**
+	 * Bulk gets active charts by IDs.
+	 */
+	async getActiveChartsByIds(
+		ids: string[],
+		options?: activeChartsRoute.ActiveChartListOptions,
+		signal?: AbortSignal,
+	): Promise<activeChartsRoute.ActiveChartBulkGetResponse> {
+		return await activeChartsRoute.getActiveChartsByIds(
+			this.client,
+			this.queryEngine,
+			ids,
 			options,
 			signal,
 		);

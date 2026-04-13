@@ -31,6 +31,11 @@ export interface ActiveChartListOptions extends charts.ChartListOptions {
 	withData?: boolean;
 }
 
+export interface ActiveChartBulkGetResponse {
+	data: SdkActiveChart[];
+	missingIds: string[];
+}
+
 interface RequestOptions {
 	tenantId?: string;
 	userId?: string;
@@ -72,7 +77,7 @@ export async function listActiveCharts(
 		params.set("limit", `${options.pagination.limit}`);
 	if (options?.sortBy) params.set("sort_by", options.sortBy);
 	if (options?.sortDir) params.set("sort_dir", options.sortDir);
-	if (options?.title) params.set("name", options.title);
+	if (options?.title) params.set("title", options.title);
 	if (options?.userFilter) params.set("user_id", options.userFilter);
 	if (options?.createdFrom) params.set("created_from", options.createdFrom);
 	if (options?.createdTo) params.set("created_to", options.createdTo);
@@ -83,6 +88,82 @@ export async function listActiveCharts(
 		charts.PaginatedResponse<SdkActiveChart>
 	>(
 		`/active-charts${params.toString() ? `?${params.toString()}` : ""}`,
+		tenantId,
+		options?.userId,
+		options?.scopes,
+		signal,
+	);
+
+	if (options?.withData) {
+		response.data = await Promise.all(
+			response.data.map(async (active) => ({
+				...active,
+				chart: active.chart
+					? await charts.getChart(
+							client,
+							queryEngine,
+							active.chart_id,
+							options,
+							signal,
+						)
+					: null,
+			})),
+		);
+	}
+
+	return response;
+}
+
+export async function listAllActiveCharts(
+	client: IQueryPanelApi,
+	queryEngine: QueryEngine,
+	options?: ActiveChartListOptions,
+	signal?: AbortSignal,
+): Promise<SdkActiveChart[]> {
+	const tenantId = resolveTenantId(client, options?.tenantId);
+	const response = await client.get<{ data: SdkActiveChart[] }>(
+		"/active-charts/all",
+		tenantId,
+		options?.userId,
+		options?.scopes,
+		signal,
+	);
+
+	if (options?.withData) {
+		response.data = await Promise.all(
+			response.data.map(async (active) => ({
+				...active,
+				chart: active.chart
+					? await charts.getChart(
+							client,
+							queryEngine,
+							active.chart_id,
+							options,
+							signal,
+						)
+					: null,
+			})),
+		);
+	}
+
+	return response.data;
+}
+
+export async function getActiveChartsByIds(
+	client: IQueryPanelApi,
+	queryEngine: QueryEngine,
+	ids: string[],
+	options?: ActiveChartListOptions,
+	signal?: AbortSignal,
+): Promise<ActiveChartBulkGetResponse> {
+	const tenantId = resolveTenantId(client, options?.tenantId);
+	const params = new URLSearchParams();
+	for (const id of ids) {
+		params.append("ids", id);
+	}
+
+	const response = await client.get<ActiveChartBulkGetResponse>(
+		`/active-charts/bulk${params.toString() ? `?${params.toString()}` : ""}`,
 		tenantId,
 		options?.userId,
 		options?.scopes,

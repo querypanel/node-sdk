@@ -3,7 +3,9 @@ import { createMockQueryPanelApi } from "../test-utils";
 import {
 	createActiveChart,
 	deleteActiveChart,
+	getActiveChartsByIds,
 	getActiveChart,
+	listAllActiveCharts,
 	listActiveCharts,
 	updateActiveChart,
 } from "./active-charts";
@@ -156,7 +158,7 @@ describe("routes/active-charts", () => {
 			const call = mockClient.get.mock.calls[0];
 			expect(call[0]).toContain("sort_by=created_at");
 			expect(call[0]).toContain("sort_dir=desc");
-			expect(call[0]).toContain("name=Test+Chart");
+			expect(call[0]).toContain("title=Test+Chart");
 			expect(call[0]).toContain("user_id=user-123");
 			expect(call[0]).toContain("created_from=2024-01-01");
 			expect(call[0]).toContain("created_to=2024-12-31");
@@ -314,6 +316,80 @@ describe("routes/active-charts", () => {
 			await expect(
 				listActiveCharts(mockClient, mockQueryEngine, {}),
 			).rejects.toThrow("tenantId is required");
+		});
+	});
+
+	describe("listAllActiveCharts", () => {
+		it("should list all active charts", async () => {
+			const response = {
+				data: [
+					{
+						id: "active-1",
+						chart_id: "chart-1",
+						order: 1,
+						meta: null,
+						organization_id: null,
+						tenant_id: "tenant-1",
+						user_id: null,
+						created_at: "2024-01-01T00:00:00Z",
+						updated_at: "2024-01-01T00:00:00Z",
+					},
+				],
+			};
+
+			mockClient.get.mockResolvedValue(response);
+
+			const result = await listAllActiveCharts(mockClient, mockQueryEngine, {
+				tenantId: "tenant-1",
+			});
+
+			expect(result).toEqual(response.data);
+			expect(mockClient.get).toHaveBeenCalledWith(
+				"/active-charts/all",
+				"tenant-1",
+				undefined,
+				undefined,
+				undefined,
+			);
+		});
+	});
+
+	describe("getActiveChartsByIds", () => {
+		it("should bulk get active charts by ids", async () => {
+			const response = {
+				data: [
+					{
+						id: "active-1",
+						chart_id: "chart-1",
+						order: 1,
+						meta: null,
+						organization_id: null,
+						tenant_id: "tenant-1",
+						user_id: null,
+						created_at: "2024-01-01T00:00:00Z",
+						updated_at: "2024-01-01T00:00:00Z",
+					},
+				],
+				missingIds: ["active-3"],
+			};
+
+			mockClient.get.mockResolvedValue(response);
+
+			const result = await getActiveChartsByIds(
+				mockClient,
+				mockQueryEngine,
+				["active-1", "active-3"],
+				{ tenantId: "tenant-1" },
+			);
+
+			expect(result).toEqual(response);
+			expect(mockClient.get).toHaveBeenCalledWith(
+				"/active-charts/bulk?ids=active-1&ids=active-3",
+				"tenant-1",
+				undefined,
+				undefined,
+				undefined,
+			);
 		});
 	});
 
