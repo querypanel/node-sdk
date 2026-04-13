@@ -366,6 +366,37 @@ dashboard.data.forEach(item => {
 });
 ```
 
+### All active charts (no pagination)
+
+`listActiveCharts()` is **paginated** (default page size is small). To load every pinned chart for a tenant in one round trip, use `listAllActiveCharts()`, which calls **`GET /active-charts/all`** and returns `{ data }` from the API as a plain array.
+
+```ts
+const all = await qp.listAllActiveCharts({
+  tenantId: "tenant_123",
+  withData: true, // optional: same as listActiveCharts — runs SQL per chart via your attached DB
+});
+```
+
+### Bulk fetch by active-chart IDs
+
+To load only specific dashboard tiles by their **active chart row IDs** (UUIDs from `createActiveChart` / `listActiveCharts`), use `getActiveChartsByIds()`. It calls **`GET /active-charts/bulk`** with query params `ids` (repeat or comma-separated). The API returns **`{ data, missingIds }`**: rows you are allowed to see, plus any requested IDs that were not found or not in scope.
+
+```ts
+const { data, missingIds } = await qp.getActiveChartsByIds(
+  ["550e8400-e29b-41d4-a716-446655440000", "550e8400-e29b-41d4-a716-446655440001"],
+  {
+    tenantId: "tenant_123",
+    withData: true, // optional
+  },
+);
+
+if (missingIds.length) {
+  console.warn("Unknown or inaccessible active charts:", missingIds);
+}
+```
+
+The API accepts up to **100** UUIDs per request. Examples: `?ids=a&ids=b` or `?ids=a,b`.
+
 ## Deno Support
 
 The SDK is fully compatible with Deno (including Supabase Edge Functions) thanks to its use of Web Crypto API for JWT signing. No additional configuration needed:

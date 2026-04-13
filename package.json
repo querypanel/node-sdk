@@ -1,6 +1,6 @@
 {
 	"name": "@querypanel/node-sdk",
-	"version": "1.2.3",
+	"version": "1.2.5",
 	"description": "TypeScript/Node.js SDK for the QueryPanel API",
 	"license": "UNLICENSED",
 	"type": "module",
