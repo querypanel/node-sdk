@@ -203,14 +203,30 @@ const charts = await qp.listCharts({ tenantId: "tenant_123" });
 
 ### Saved charts via `/charts/all`
 
-`listAllCharts()` calls **`GET /charts/all`**. It accepts the **same options as `listCharts()`** (including **`pagination`** with `page` and `limit`, filters, and sort). The response shape is **`{ data, pagination }`**, identical to `listCharts()`. Use **`includeData: true`** to execute each chart’s SQL locally.
+`listAllCharts()` calls **`GET /charts/all`**. It accepts the **same options as `listCharts()`** (including **`pagination`** with `page` and `limit`, filters, and sort).
+
+**Breaking change:** Older SDK versions returned a **plain array** of charts from `listAllCharts()`. Current versions return **`{ data, pagination }`**, the same **`PaginatedResponse`** shape as **`listCharts()`**. Update callers from `const charts = await qp.listAllCharts(...)` to **`const { data: charts, pagination } = await qp.listAllCharts(...)`** (or use **`result.data`** only).
 
 ```ts
-const page = await qp.listAllCharts({
+const { data, pagination } = await qp.listAllCharts({
   tenantId: "tenant_123",
   pagination: { page: 1, limit: 50 },
   includeData: true,
 });
+
+// Walk every page (same pattern as listCharts)
+let page = 1;
+const limit = 50;
+let allCharts: typeof data = [];
+for (;;) {
+  const res = await qp.listAllCharts({
+    tenantId: "tenant_123",
+    pagination: { page, limit },
+  });
+  allCharts = allCharts.concat(res.data);
+  if (!res.pagination.hasNext) break;
+  page += 1;
+}
 ```
 
 ### Bulk fetch saved charts by ID
