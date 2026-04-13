@@ -77,7 +77,9 @@ export type {
 } from "./routes/active-charts";
 
 export type {
+	ChartBulkGetResponse,
 	ChartCreateInput,
+	ChartListAllOptions,
 	ChartListOptions,
 	ChartUpdateInput,
 	PaginatedResponse,
@@ -694,6 +696,38 @@ export class QueryPanelSdkAPI {
 		return await chartsRoute.listCharts(
 			this.client,
 			this.queryEngine,
+			options,
+			signal,
+		);
+	}
+
+	/**
+	 * Lists saved charts via `GET /charts/all` (same query, filters, and pagination as {@link listCharts}).
+	 */
+	async listAllCharts(
+		options?: chartsRoute.ChartListOptions,
+		signal?: AbortSignal,
+	): Promise<chartsRoute.PaginatedResponse<chartsRoute.SdkChart>> {
+		return await chartsRoute.listAllCharts(
+			this.client,
+			this.queryEngine,
+			options,
+			signal,
+		);
+	}
+
+	/**
+	 * Bulk gets saved charts by chart IDs (`GET /charts/bulk` with `ids` query params).
+	 */
+	async getChartsByIds(
+		ids: string[],
+		options?: chartsRoute.ChartListAllOptions,
+		signal?: AbortSignal,
+	): Promise<chartsRoute.ChartBulkGetResponse> {
+		return await chartsRoute.getChartsByIds(
+			this.client,
+			this.queryEngine,
+			ids,
 			options,
 			signal,
 		);

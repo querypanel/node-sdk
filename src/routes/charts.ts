@@ -78,6 +78,14 @@ export interface ChartListOptions {
 	includeData?: boolean;
 }
 
+/** Options for bulk chart fetch (`GET /charts/bulk`) — no pagination. */
+export type ChartListAllOptions = Omit<ChartListOptions, "pagination">;
+
+export interface ChartBulkGetResponse {
+	data: SdkChart[];
+	missingIds: string[];
+}
+
 interface RequestOptions {
 	tenantId?: string;
 	userId?: string;
@@ -128,6 +136,80 @@ export async function listCharts(
 
 	const response = await client.get<PaginatedResponse<SdkChart>>(
 		`/charts${params.toString() ? `?${params.toString()}` : ""}`,
+		tenantId,
+		options?.userId,
+		options?.scopes,
+		signal,
+	);
+
+	if (options?.includeData) {
+		response.data = await Promise.all(
+			response.data.map(async (chart) => {
+				const rows = await executeChartQuery(queryEngine, chart, tenantId);
+				return hydrateChartWithData(chart, rows);
+			}),
+		);
+	}
+
+	return response;
+}
+
+export async function listAllCharts(
+	client: IQueryPanelApi,
+	queryEngine: QueryEngine,
+	options?: ChartListOptions,
+	signal?: AbortSignal,
+): Promise<PaginatedResponse<SdkChart>> {
+	const tenantId = resolveTenantId(client, options?.tenantId);
+	const params = new URLSearchParams();
+	if (options?.pagination?.page)
+		params.set("page", `${options.pagination.page}`);
+	if (options?.pagination?.limit)
+		params.set("limit", `${options.pagination.limit}`);
+	if (options?.sortBy) params.set("sort_by", options.sortBy);
+	if (options?.sortDir) params.set("sort_dir", options.sortDir);
+	if (options?.title) params.set("title", options.title);
+	if (options?.userFilter) params.set("user_id", options.userFilter);
+	if (options?.createdFrom) params.set("created_from", options.createdFrom);
+	if (options?.createdTo) params.set("created_to", options.createdTo);
+	if (options?.updatedFrom) params.set("updated_from", options.updatedFrom);
+	if (options?.updatedTo) params.set("updated_to", options.updatedTo);
+
+	const response = await client.get<PaginatedResponse<SdkChart>>(
+		`/charts/all${params.toString() ? `?${params.toString()}` : ""}`,
+		tenantId,
+		options?.userId,
+		options?.scopes,
+		signal,
+	);
+
+	if (options?.includeData) {
+		response.data = await Promise.all(
+			response.data.map(async (chart) => {
+				const rows = await executeChartQuery(queryEngine, chart, tenantId);
+				return hydrateChartWithData(chart, rows);
+			}),
+		);
+	}
+
+	return response;
+}
+
+export async function getChartsByIds(
+	client: IQueryPanelApi,
+	queryEngine: QueryEngine,
+	ids: string[],
+	options?: ChartListAllOptions,
+	signal?: AbortSignal,
+): Promise<ChartBulkGetResponse> {
+	const tenantId = resolveTenantId(client, options?.tenantId);
+	const params = new URLSearchParams();
+	for (const id of ids) {
+		params.append("ids", id);
+	}
+
+	const response = await client.get<ChartBulkGetResponse>(
+		`/charts/bulk${params.toString() ? `?${params.toString()}` : ""}`,
 		tenantId,
 		options?.userId,
 		options?.scopes,

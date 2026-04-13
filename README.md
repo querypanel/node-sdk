@@ -201,6 +201,29 @@ if (response.chart.vegaLiteSpec) {
 const charts = await qp.listCharts({ tenantId: "tenant_123" });
 ```
 
+### Saved charts via `/charts/all`
+
+`listAllCharts()` calls **`GET /charts/all`**. It accepts the **same options as `listCharts()`** (including **`pagination`** with `page` and `limit`, filters, and sort). The response shape is **`{ data, pagination }`**, identical to `listCharts()`. Use **`includeData: true`** to execute each chart’s SQL locally.
+
+```ts
+const page = await qp.listAllCharts({
+  tenantId: "tenant_123",
+  pagination: { page: 1, limit: 50 },
+  includeData: true,
+});
+```
+
+### Bulk fetch saved charts by ID
+
+To load specific saved charts by their **chart UUIDs** (from `createChart` or list responses), use `getChartsByIds()`. It calls **`GET /charts/bulk`** with `ids` as repeated or comma-separated query params. The API returns **`{ data, missingIds }`**. Up to **100** UUIDs per request.
+
+```ts
+const { data, missingIds } = await qp.getChartsByIds(
+  ["550e8400-e29b-41d4-a716-446655440000"],
+  { tenantId: "tenant_123", includeData: true },
+);
+```
+
 Saved charts now include the original `prompt` so you can show the question
 alongside chart history or reuse it in follow-up workflows.
 

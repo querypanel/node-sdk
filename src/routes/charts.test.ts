@@ -5,6 +5,8 @@ import {
 	createChart,
 	deleteChart,
 	getChart,
+	getChartsByIds,
+	listAllCharts,
 	listCharts,
 	updateChart,
 } from "./charts";
@@ -290,6 +292,97 @@ describe("routes/charts", () => {
 
 			await expect(listCharts(mockClient, mockQueryEngine, {})).rejects.toThrow(
 				"tenantId is required",
+			);
+		});
+	});
+
+	describe("listAllCharts", () => {
+		it("should list charts with pagination via /charts/all", async () => {
+			const response = {
+				data: [
+					{
+						id: "chart-1",
+						title: "Chart 1",
+						description: null,
+						sql: "SELECT 1",
+						sql_params: null,
+						vega_lite_spec: { mark: "bar" },
+						query_id: null,
+						organization_id: null,
+						tenant_id: "tenant-1",
+						user_id: null,
+						created_at: "2024-01-01T00:00:00Z",
+						updated_at: "2024-01-01T00:00:00Z",
+					},
+				],
+				pagination: {
+					page: 2,
+					limit: 25,
+					total: 40,
+					totalPages: 2,
+					hasNext: false,
+					hasPrev: true,
+				},
+			};
+
+			mockClient.get.mockResolvedValue(response);
+
+			const result = await listAllCharts(mockClient, mockQueryEngine, {
+				tenantId: "tenant-1",
+				pagination: { page: 2, limit: 25 },
+				sortBy: "title",
+				sortDir: "asc",
+			});
+
+			expect(result).toEqual(response);
+			expect(mockClient.get).toHaveBeenCalledWith(
+				"/charts/all?page=2&limit=25&sort_by=title&sort_dir=asc",
+				"tenant-1",
+				undefined,
+				undefined,
+				undefined,
+			);
+		});
+	});
+
+	describe("getChartsByIds", () => {
+		it("should bulk get charts by ids", async () => {
+			const response = {
+				data: [
+					{
+						id: "chart-1",
+						title: "Chart 1",
+						description: null,
+						sql: "SELECT 1",
+						sql_params: null,
+						vega_lite_spec: { mark: "bar" },
+						query_id: null,
+						organization_id: null,
+						tenant_id: "tenant-1",
+						user_id: null,
+						created_at: "2024-01-01T00:00:00Z",
+						updated_at: "2024-01-01T00:00:00Z",
+					},
+				],
+				missingIds: ["chart-missing"],
+			};
+
+			mockClient.get.mockResolvedValue(response);
+
+			const result = await getChartsByIds(
+				mockClient,
+				mockQueryEngine,
+				["chart-1", "chart-missing"],
+				{ tenantId: "tenant-1" },
+			);
+
+			expect(result).toEqual(response);
+			expect(mockClient.get).toHaveBeenCalledWith(
+				"/charts/bulk?ids=chart-1&ids=chart-missing",
+				"tenant-1",
+				undefined,
+				undefined,
+				undefined,
 			);
 		});
 	});
