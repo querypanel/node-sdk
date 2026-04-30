@@ -201,8 +201,6 @@ export async function ask(
 
 	while (attempt <= maxRetry) {
 		// Step 1: Get SQL from backend
-		console.log({ lastError, previousSql });
-
 		const databaseName = options.database ?? queryEngine.getDefaultDatabase();
 		const metadata = databaseName
 			? queryEngine.getDatabaseMetadata(databaseName)
@@ -386,9 +384,14 @@ export async function ask(
 			previousSql = queryResponse.data.sql ?? previousSql;
 
 			// Log retry attempt
-			console.warn(
-				`SQL execution failed (attempt ${attempt}/${maxRetry + 1}): ${lastError}. Retrying...`,
-			);
+			console.warn("SQL execution failed, retrying query generation", {
+				attempt,
+				maxAttempts: maxRetry + 1,
+				error: lastError,
+				sql: queryResponse.data.sql ?? null,
+				paramMetadata,
+				params: paramValues,
+			});
 		}
 	}
 
