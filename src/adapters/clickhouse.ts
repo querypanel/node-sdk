@@ -213,11 +213,22 @@ export class ClickHouseAdapter implements DatabaseAdapter {
 
 		// Extract potential table references from SQL
 		const tablePattern =
-			/(?:FROM|JOIN)\s+(?:FINAL\s+)?(?:(?:[a-zA-Z_][a-zA-Z0-9_]*)\.)?(["'`]?[a-zA-Z_][a-zA-Z0-9_]*["'`]?)/gi;
+			/\b(FROM|JOIN)\s+(?:FINAL\s+)?(?:(?:[a-zA-Z_][a-zA-Z0-9_]*)\.)?(["'`]?[a-zA-Z_][a-zA-Z0-9_]*["'`]?)/gi;
 		const matches = sql.matchAll(tablePattern);
 
 		for (const match of matches) {
-			const table = match[1]?.replace(/["'`]/g, "");
+			const clause = match[1]?.toUpperCase();
+			const matchIndex = match.index ?? -1;
+			if (
+				clause === "JOIN" &&
+				matchIndex >= 0 &&
+				isArrayJoinClause(sql, matchIndex)
+			) {
+				// ClickHouse ARRAY JOIN expands array-typed columns, not tables.
+				continue;
+			}
+
+			const table = match[2]?.replace(/["'`]/g, "");
 			if (table) {
 				if (!allowedSet.has(table)) {
 					throw new Error(
@@ -304,6 +315,12 @@ function normalizeTableFilter(tables?: string[] | null): string[] {
 		normalized.push(tableName);
 	}
 	return normalized;
+}
+
+function isArrayJoinClause(sql: string, joinIndex: number): boolean {
+	const beforeJoin = sql.slice(0, joinIndex);
+	const previousToken = beforeJoin.trim().split(/\s+/).pop()?.toUpperCase();
+	return previousToken === "ARRAY";
 }
 
 function transformColumnRow(row: ColumnRow): ColumnSchema {
