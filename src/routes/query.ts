@@ -66,7 +66,7 @@ export interface AskOptions {
 	 */
 	pipeline?: "v1" | "v2";
 	/**
-	 * Optional OpenAI model id for v2 SQL generation. Omit to use server default.
+	 * Optional model id for v2 SQL generation (e.g. OpenAI or `gemini-*` when the API uses Gemini). Omit for server default.
 	 */
 	model?: string;
 	/**
