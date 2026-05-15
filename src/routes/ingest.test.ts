@@ -86,6 +86,7 @@ describe("routes/ingest", () => {
 					dialect: "postgres",
 					tables: [
 						{
+							schema_name: "public",
 							table_name: "users",
 							description: "Users table",
 							columns: [

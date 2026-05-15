@@ -30,6 +30,7 @@ interface SchemaIngestColumn {
 }
 
 interface SchemaIngestTable {
+	schema_name?: string;
 	table_name: string;
 	description: string;
 	columns: SchemaIngestColumn[];
@@ -109,6 +110,7 @@ function buildSchemaRequest(
 ): SchemaIngestRequest {
 	const dialect = adapter.getDialect();
 	const tables: SchemaIngestTable[] = introspection.tables.map((table) => ({
+		schema_name: table.schema,
 		table_name: table.name,
 		description: table.comment ?? `Table ${table.name}`,
 		columns: table.columns.map((column) => ({
