@@ -567,6 +567,35 @@ describe("routes/query", () => {
 				system_prompt: "Always apply tenant retention window: last 30 days.",
 			});
 		});
+
+		it("should send rerank options only for v2 pipeline", async () => {
+			mockClient.postWithHeaders.mockResolvedValueOnce({
+				data: {
+					success: true,
+					sql: "SELECT 1",
+					params: [],
+					dialect: "postgres",
+				},
+				headers: mockHeaders(),
+			});
+
+			mockQueryEngineSetup.validateAndExecute.mockResolvedValue({
+				rows: [],
+				fields: [],
+			});
+
+			await ask(mockClient, mockQueryEngine, "test", {
+				tenantId: "tenant-1",
+				pipeline: "v2",
+				rerank: { enabled: true, candidateCount: 12 },
+			});
+
+			const call = mockClient.postWithHeaders.mock.calls[0];
+			expect(call[0]).toBe("/v2/query");
+			expect(call[1]).toMatchObject({
+				rerank: { enabled: true, candidate_count: 12 },
+			});
+		});
 	});
 
 	describe("anonymizeResults", () => {
