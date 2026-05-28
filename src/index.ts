@@ -411,7 +411,7 @@ export class QueryPanelSdkAPI {
 	 * It handles the complete flow: SQL generation → validation → execution → chart generation.
 	 *
 	 * @param question - Natural language question (e.g., "Show revenue by country")
-	 * @param options - Query options including tenantId, database, and retry settings
+	 * @param options - Query options including tenantId, database, retry settings, and optional `debug` for engineer-style rationale
 	 * @param signal - Optional AbortSignal for cancellation
 	 * @returns Response with SQL, executed data rows, and generated chart
 	 * @throws {Error} When SQL generation or execution fails after all retries

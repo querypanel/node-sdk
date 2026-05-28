@@ -86,6 +86,11 @@ export interface AskOptions {
 	 * Sent to `POST /vizspec` as `supported_chart_types`. Omitted allows all standard types.
 	 */
 	supportedChartTypes?: ChartType[];
+	/**
+	 * When true, rationale includes engineer-style schema detail (tables, columns).
+	 * When false (default), rationale is client-safe for end users.
+	 */
+	debug?: boolean;
 }
 
 /**
@@ -231,6 +236,7 @@ export async function ask(
 				...(options.pipeline === "v2" && options.systemPrompt?.trim()
 					? { system_prompt: options.systemPrompt.trim() }
 					: {}),
+				debug: options.debug ?? false,
 			},
 			tenantId,
 			options.userId,

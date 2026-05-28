@@ -198,6 +198,11 @@ export interface ChartModifyOptions {
 	 * Restrict VizSpec chart types for this call (merged with SDK default from constructor when omitted).
 	 */
 	supportedChartTypes?: ChartType[];
+	/**
+	 * When true, rationale includes engineer-style schema detail (tables, columns).
+	 * When false (default), rationale is client-safe for end users.
+	 */
+	debug?: boolean;
 }
 
 /**
@@ -603,6 +608,7 @@ export async function modifyChart(
 				...(tenantSettings ? { tenant_settings: tenantSettings } : {}),
 				...(databaseName ? { database: databaseName } : {}),
 				...(metadata?.dialect ? { dialect: metadata.dialect } : {}),
+				debug: options?.debug ?? false,
 			},
 			tenantId,
 			options?.userId,
