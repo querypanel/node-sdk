@@ -70,15 +70,6 @@ export interface AskOptions {
 	 */
 	model?: string;
 	/**
-	 * Optional Vertex reranking for v2 schema retrieval. Disabled by default.
-	 *
-	 * Only sent when `pipeline: "v2"`.
-	 */
-	rerank?: {
-		enabled: boolean;
-		candidateCount?: number;
-	};
-	/**
 	 * Optional additional system prompt text for the v2 pipeline.
 	 *
 	 * This is appended to the backend's SQL generator/reflection system prompts
@@ -242,16 +233,6 @@ export async function ask(
 				...(databaseName ? { database: databaseName } : {}),
 				...(metadata?.dialect ? { dialect: metadata.dialect } : {}),
 				...(options.model?.trim() ? { model: options.model.trim() } : {}),
-				...(options.pipeline === "v2" && options.rerank
-					? {
-							rerank: {
-								enabled: options.rerank.enabled,
-								...(options.rerank.candidateCount
-									? { candidate_count: options.rerank.candidateCount }
-									: {}),
-							},
-						}
-					: {}),
 				...(options.pipeline === "v2" && options.systemPrompt?.trim()
 					? { system_prompt: options.systemPrompt.trim() }
 					: {}),
