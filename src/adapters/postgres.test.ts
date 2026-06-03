@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { PostgresAdapter, type PostgresClientFn } from "./postgres";
+import {
+	filterParamsForPostgresSql,
+	maxPostgresPlaceholderIndex,
+	PostgresAdapter,
+	type PostgresClientFn,
+} from "./postgres";
 
 describe("PostgresAdapter", () => {
 	const createMockClientFn = (): PostgresClientFn =>
@@ -234,6 +239,62 @@ INNER JOIN d ON c.id = d.c_id`;
 
 				await expect(adapter.execute(sql)).resolves.toBeDefined();
 			});
+		});
+	});
+
+	describe("filterParamsForPostgresSql", () => {
+		it("returns undefined when SQL has no positional placeholders", () => {
+			const sql =
+				"SELECT tenant_id FROM public.sql_logs WHERE organization_id = '149c3cc2-7f9e-49d0-950d-9a84aa3dd76c'";
+			expect(maxPostgresPlaceholderIndex(sql)).toBe(0);
+			expect(
+				filterParamsForPostgresSql(sql, {
+					organization_id: "149c3cc2-7f9e-49d0-950d-9a84aa3dd76c",
+				}),
+			).toBeUndefined();
+		});
+
+		it("keeps numeric params that match $1 placeholders", () => {
+			const sql = "SELECT * FROM orders WHERE tenant_id = $1";
+			expect(
+				filterParamsForPostgresSql(sql, {
+					"1": "tenant_a",
+					tenant_id: "tenant_a",
+				}),
+			).toEqual({ "1": "tenant_a" });
+		});
+	});
+
+	describe("positional bind order", () => {
+		it("binds $1 then $2 using numeric keys, not alphabetical param names", async () => {
+			const clientFn = createMockClientFn();
+			const adapter = new PostgresAdapter(clientFn);
+			const sql =
+				"SELECT * FROM events WHERE created_at >= $1 AND created_at < $2";
+
+			await adapter.execute(sql, {
+				"1": "2024-01-01",
+				"2": "2024-12-31",
+				end_date: "2024-12-31",
+				start_date: "2024-01-01",
+			});
+
+			expect(clientFn).toHaveBeenCalledWith(sql, ["2024-01-01", "2024-12-31"]);
+		});
+	});
+
+	describe("execute with stale named params", () => {
+		it("does not bind parameters when SQL literals replaced placeholders", async () => {
+			const clientFn = createMockClientFn();
+			const adapter = new PostgresAdapter(clientFn);
+			const sql =
+				'SELECT "tenant_id", COUNT(*) AS "active_count" FROM public.sql_logs WHERE "organization_id" = \'149c3cc2-7f9e-49d0-950d-9a84aa3dd76c\' GROUP BY "tenant_id"';
+
+			await adapter.execute(sql, {
+				organization_id: "149c3cc2-7f9e-49d0-950d-9a84aa3dd76c",
+			});
+
+			expect(clientFn).toHaveBeenCalledWith(sql, undefined);
 		});
 	});
 });

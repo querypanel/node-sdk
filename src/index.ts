@@ -68,6 +68,10 @@ export { CallbackApiClient } from "./core/callback-client";
 
 // Re-export from query-engine
 export type { ParamRecord, ParamValue } from "./core/query-engine";
+export {
+	mapGeneratedParams,
+	normalizeSqlParamsInput,
+} from "./core/map-generated-params";
 export type {
 	ActiveChartBulkGetResponse,
 	ActiveChartCreateInput,

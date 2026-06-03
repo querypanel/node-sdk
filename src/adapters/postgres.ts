@@ -52,6 +52,54 @@ interface NormalizedTable {
 	table: string;
 }
 
+/** Highest $N index referenced in SQL (0 when the query uses literal values only). */
+export function maxPostgresPlaceholderIndex(sql: string): number {
+	let max = 0;
+	for (const match of sql.matchAll(/\$(\d+)\b/g)) {
+		const index = Number.parseInt(match[1], 10);
+		if (Number.isFinite(index) && index > max) {
+			max = index;
+		}
+	}
+	return max;
+}
+
+type PostgresParamRecord = Record<
+	string,
+	string | number | boolean | string[] | number[]
+>;
+
+/**
+ * Drop bind parameters when SQL has no $1..$N placeholders (common after LLM inlines literals).
+ */
+export function filterParamsForPostgresSql(
+	sql: string,
+	params: PostgresParamRecord | undefined,
+): PostgresParamRecord | undefined {
+	if (!params || Object.keys(params).length === 0) {
+		return undefined;
+	}
+
+	const placeholderCount = maxPostgresPlaceholderIndex(sql);
+	if (placeholderCount === 0) {
+		return undefined;
+	}
+
+	const hasNumericKeys = Object.keys(params).some((key) => /^\d+$/.test(key));
+	if (hasNumericKeys) {
+		const filtered: PostgresParamRecord = {};
+		for (let index = 1; index <= placeholderCount; index += 1) {
+			const key = String(index);
+			if (key in params) {
+				filtered[key] = params[key];
+			}
+		}
+		return Object.keys(filtered).length > 0 ? filtered : undefined;
+	}
+
+	return params;
+}
+
 /**
  * Simplified PostgreSQL adapter following IngestRequest format
  * Removed: indexes, constraints, foreign keys, statistics
@@ -87,10 +135,12 @@ export class PostgresAdapter implements DatabaseAdapter {
 			this.validateQueryTables(sql);
 		}
 
+		const boundParams = filterParamsForPostgresSql(sql, params);
+
 		// Convert named params to positional array for PostgreSQL
 		let paramArray: unknown[] | undefined;
-		if (params) {
-			paramArray = this.convertNamedToPositionalParams(params);
+		if (boundParams) {
+			paramArray = this.convertNamedToPositionalParams(sql, boundParams);
 		}
 
 		const result = await this.clientFn(sql, paramArray);
@@ -135,51 +185,57 @@ export class PostgresAdapter implements DatabaseAdapter {
 	}
 
 	/**
-	 * Convert params to positional array for PostgreSQL.
-	 * PostgreSQL expects $1, $2, $3 in SQL and an array of values [val1, val2, val3].
-	 * When the record has numeric keys ("1", "2", "3") — e.g. from mapGeneratedParams —
-	 * use only those in order so placeholder order matches SQL. Otherwise fall back to
-	 * named keys in alphabetical order for backward compatibility.
+	 * Convert params to positional array for PostgreSQL ($1, $2, …).
+	 * Values must align with v2 generation order via numeric keys from mapGeneratedParams.
 	 */
 	private convertNamedToPositionalParams(
+		sql: string,
 		params: Record<string, string | number | boolean | string[] | number[]>,
 	): unknown[] {
-		const numericKeys = Object.keys(params)
-			.filter((k) => /^\d+$/.test(k))
-			.map((k) => Number.parseInt(k, 10))
-			.sort((a, b) => a - b);
-
-		// If we have numeric keys, use only them (in order) so $1, $2, $3 match API order
-		if (numericKeys.length > 0) {
-			const positionalParams: unknown[] = [];
-			for (const key of numericKeys) {
-				let val: unknown = params[String(key)];
-				if (typeof val === "string") {
-					const match = val.match(/^<([a-zA-Z0-9_]+)>$/);
-					const namedKey = match?.[1];
-					if (namedKey && namedKey in params) {
-						val = params[namedKey as keyof typeof params];
-					}
-				}
-				positionalParams.push(val);
-			}
-			return positionalParams;
+		const placeholderCount = maxPostgresPlaceholderIndex(sql);
+		if (placeholderCount === 0) {
+			return [];
 		}
 
-		// Fallback: named keys only (e.g. caller built record without numeric keys)
-		const namedKeys = Object.keys(params)
-			.filter((k) => !/^\d+$/.test(k))
-			.sort();
-		return namedKeys.map((key) => params[key]);
+		const positionalParams: unknown[] = [];
+
+		for (let index = 1; index <= placeholderCount; index += 1) {
+			const key = String(index);
+			let val: unknown = params[key];
+
+			if (val === undefined && placeholderCount === 1) {
+				const namedKeys = Object.keys(params).filter((k) => !/^\d+$/.test(k));
+				if (namedKeys.length === 1) {
+					val = params[namedKeys[0] as keyof typeof params];
+				}
+			}
+
+			if (val === undefined) {
+				throw new Error(`Missing value for PostgreSQL parameter $${index}`);
+			}
+
+			if (typeof val === "string") {
+				const match = val.match(/^<([a-zA-Z0-9_]+)>$/);
+				const namedKey = match?.[1];
+				if (namedKey && namedKey in params) {
+					val = params[namedKey as keyof typeof params];
+				}
+			}
+
+			positionalParams.push(val);
+		}
+
+		return positionalParams;
 	}
 
 	async validate(
 		sql: string,
 		params?: Record<string, string | number | boolean | string[] | number[]>,
 	): Promise<void> {
+		const boundParams = filterParamsForPostgresSql(sql, params);
 		let paramArray: unknown[] | undefined;
-		if (params) {
-			paramArray = this.convertNamedToPositionalParams(params);
+		if (boundParams) {
+			paramArray = this.convertNamedToPositionalParams(sql, boundParams);
 		}
 
 		await this.clientFn(`EXPLAIN ${sql}`, paramArray);

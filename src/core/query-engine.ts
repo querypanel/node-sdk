@@ -1,7 +1,8 @@
 import type { DatabaseAdapter, DatabaseDialect } from "../adapters/types";
+import { mapGeneratedParams as mapGeneratedParamsFromMetadata } from "./map-generated-params";
+import type { ParamRecord, ParamValue } from "./param-types";
 
-export type ParamValue = string | number | boolean | string[] | number[];
-export type ParamRecord = Record<string, ParamValue>;
+export type { ParamRecord, ParamValue } from "./param-types";
 
 export interface DatabaseMetadata {
 	name: string;
@@ -116,25 +117,7 @@ export class QueryEngine {
 	 * - Named keys remain for tenant isolation / other lookups.
 	 */
 	mapGeneratedParams(params: Array<Record<string, unknown>>): ParamRecord {
-		const record: ParamRecord = {};
-
-		params.forEach((param, index) => {
-			const value = param.value as ParamValue | undefined;
-			if (value === undefined) {
-				return;
-			}
-			// Numeric key preserves API/SQL order for PostgreSQL $1, $2, $3
-			record[String(index + 1)] = value;
-			const nameCandidate =
-				(typeof param.name === "string" && param.name.trim()) ||
-				(typeof param.placeholder === "string" && param.placeholder.trim()) ||
-				(typeof param.position === "number" && String(param.position)) ||
-				String(index + 1);
-			const key = nameCandidate.replace(/[{}:$]/g, "").trim();
-			record[key] = value;
-		});
-
-		return record;
+		return mapGeneratedParamsFromMetadata(params);
 	}
 
 	private ensureTenantIsolation(
@@ -168,11 +151,10 @@ export class QueryEngine {
 			params[tenantField] = tenantId;
 			tenantPredicate = `${tenantField} = @${tenantField}`;
 		} else {
-			// Postgres (and others): Use literal to avoid modifying 'params' object.
-			// Modifying 'params' can break positional parameter mapping (e.g. $1, $2)
-			// because PostgresAdapter sorts named keys alphabetically to assign positions.
-			const escapedId = tenantId.replace(/'/g, "''");
-			tenantPredicate = `${tenantField} = '${escapedId}'`;
+			const paramIndex = this.nextPostgresPlaceholderIndex(sql, params);
+			params[String(paramIndex)] = tenantId;
+			params[tenantField] = tenantId;
+			tenantPredicate = `${tenantField} = $${paramIndex}`;
 		}
 
 		if (/\bwhere\b/i.test(sql)) {
@@ -183,5 +165,33 @@ export class QueryEngine {
 		}
 
 		return `${sql} WHERE ${tenantPredicate}`;
+	}
+
+	private nextPostgresPlaceholderIndex(
+		sql: string,
+		params: ParamRecord,
+	): number {
+		let max = 0;
+		for (const match of sql.matchAll(/\$(\d+)\b/g)) {
+			const index = Number.parseInt(match[1], 10);
+			if (Number.isFinite(index) && index > max) {
+				max = index;
+			}
+		}
+
+		if (max > 0) {
+			return max + 1;
+		}
+
+		const numericKeys = Object.keys(params)
+			.filter((key) => /^\d+$/.test(key))
+			.map((key) => Number.parseInt(key, 10))
+			.filter((index) => Number.isFinite(index));
+
+		if (numericKeys.length > 0) {
+			return Math.max(...numericKeys) + 1;
+		}
+
+		return 1;
 	}
 }
