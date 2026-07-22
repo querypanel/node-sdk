@@ -289,75 +289,80 @@ export async function ask(
 			);
 			const rows = execution.rows ?? [];
 
-			// Step 4: Generate chart if we have data
+			// Step 4: Generate chart encoding even when the query returns no rows,
+			// so headless clients can show "No Data" with the correct chart type.
 			const chartType = options.chartType ?? "vega-lite"; // Default to vega-lite for backward compatibility
 			let chart: ChartEnvelope = {
 				specType: chartType,
 				notes: rows.length === 0 ? "Query returned no rows." : null,
 			};
 
-			if (rows.length > 0) {
-				if (chartType === "vizspec") {
-					// Use new VizSpec generation
-					const vizspecResponse = await client.post<ServerVizSpecResponse>(
-						"/vizspec",
-						{
-							question,
-							sql,
-							rationale: queryResponse.data.rationale,
-							fields: execution.fields,
-							rows: anonymizeResults(rows),
-							max_retries: options.chartMaxRetries ?? 3,
-							query_id: queryResponse.data.queryId,
-							...(options.supportedChartTypes?.length
-								? {
-										supported_chart_types: options.supportedChartTypes,
-									}
-								: {}),
-						},
-						tenantId,
-						options.userId,
-						options.scopes,
-						signal,
-						sessionId,
-					);
-
-					chart = {
-						vizSpec: vizspecResponse.spec,
-						specType: "vizspec",
-						notes: vizspecResponse.notes,
-					};
-				} else {
-					// Use traditional Vega-Lite chart generation
-					const chartResponse = await client.post<ServerChartResponse>(
-						"/chart",
-						{
-							question,
-							sql,
-							rationale: queryResponse.data.rationale,
-							fields: execution.fields,
-							rows: anonymizeResults(rows),
-							max_retries: options.chartMaxRetries ?? 3,
-							query_id: queryResponse.data.queryId,
-						},
-						tenantId,
-						options.userId,
-						options.scopes,
-						signal,
-						sessionId,
-					);
-
-					chart = {
-						vegaLiteSpec: chartResponse.chart
+			if (chartType === "vizspec") {
+				// Use new VizSpec generation
+				const vizspecResponse = await client.post<ServerVizSpecResponse>(
+					"/vizspec",
+					{
+						question,
+						sql,
+						rationale: queryResponse.data.rationale,
+						fields: execution.fields,
+						rows: anonymizeResults(rows),
+						max_retries: options.chartMaxRetries ?? 3,
+						query_id: queryResponse.data.queryId,
+						...(options.supportedChartTypes?.length
 							? {
-									...chartResponse.chart,
-									data: { values: rows },
+									supported_chart_types: options.supportedChartTypes,
 								}
-							: null,
-						specType: "vega-lite",
-						notes: chartResponse.notes,
-					};
-				}
+							: {}),
+					},
+					tenantId,
+					options.userId,
+					options.scopes,
+					signal,
+					sessionId,
+				);
+
+				chart = {
+					vizSpec: vizspecResponse.spec,
+					specType: "vizspec",
+					notes:
+						rows.length === 0
+							? (vizspecResponse.notes ?? "Query returned no rows.")
+							: vizspecResponse.notes,
+				};
+			} else {
+				// Use traditional Vega-Lite chart generation
+				const chartResponse = await client.post<ServerChartResponse>(
+					"/chart",
+					{
+						question,
+						sql,
+						rationale: queryResponse.data.rationale,
+						fields: execution.fields,
+						rows: anonymizeResults(rows),
+						max_retries: options.chartMaxRetries ?? 3,
+						query_id: queryResponse.data.queryId,
+					},
+					tenantId,
+					options.userId,
+					options.scopes,
+					signal,
+					sessionId,
+				);
+
+				chart = {
+					vegaLiteSpec: chartResponse.chart
+						? {
+								...chartResponse.chart,
+								data: { values: rows },
+							}
+						: null,
+					specType: "vega-lite",
+					notes:
+						rows.length === 0
+							? (chartResponse.notes ?? "Query returned no rows.")
+							: chartResponse.notes,
+				};
 			}
 
 			return {

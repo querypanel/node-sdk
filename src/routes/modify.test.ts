@@ -579,6 +579,17 @@ describe("routes/modify", () => {
 					rows: [],
 					fields: ["id"],
 				});
+				mockClient.post.mockResolvedValueOnce({
+					chart: {
+						mark: "bar",
+						encoding: {
+							x: { field: "id", type: "nominal" },
+							y: { aggregate: "count" },
+						},
+						data: { values: [] },
+					},
+					notes: "Empty result chart",
+				});
 
 				const result = await modifyChart(
 					mockClient,
@@ -592,11 +603,25 @@ describe("routes/modify", () => {
 				);
 
 				expect(result.rows).toEqual([]);
-				expect(result.chart.notes).toBe("Query returned no rows.");
-				expect(result.chart.vegaLiteSpec).toBeUndefined();
+				expect(result.chart.notes).toBe("Empty result chart");
+				expect(result.chart.vegaLiteSpec).toMatchObject({
+					mark: "bar",
+					data: { values: [] },
+				});
 
-				// Should NOT call chart generation endpoint
-				expect(mockClient.post).not.toHaveBeenCalled();
+				// Should still call chart generation for empty results
+				expect(mockClient.post).toHaveBeenCalledWith(
+					"/chart",
+					expect.objectContaining({
+						fields: ["id"],
+						rows: [],
+					}),
+					"tenant-1",
+					undefined,
+					undefined,
+					undefined,
+					expect.any(String),
+				);
 			});
 
 			it("should throw error if no database specified and no default", async () => {
@@ -632,6 +657,10 @@ describe("routes/modify", () => {
 				mockQueryEngine.validateAndExecute.mockResolvedValue({
 					rows: [],
 					fields: [],
+				});
+				mockClient.post.mockResolvedValueOnce({
+					chart: { mark: "bar" },
+					notes: null,
 				});
 
 				await modifyChart(mockClient, mockQueryEngine, {

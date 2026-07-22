@@ -105,6 +105,10 @@ describe("routes/query", () => {
 				},
 				headers: mockHeaders(),
 			});
+			mockClient.post.mockResolvedValueOnce({
+				chart: { mark: "bar" },
+				notes: null,
+			});
 
 			mockQueryEngineSetup.validateAndExecute.mockResolvedValue({
 				rows: [],
@@ -136,6 +140,10 @@ describe("routes/query", () => {
 					dialect: "postgres",
 				},
 				headers: mockHeaders(),
+			});
+			mockClient.post.mockResolvedValueOnce({
+				chart: { mark: "bar" },
+				notes: null,
 			});
 
 			mockQueryEngineSetup.validateAndExecute.mockResolvedValue({
@@ -232,6 +240,10 @@ describe("routes/query", () => {
 					rows: [],
 					fields: [],
 				});
+			mockClient.post.mockResolvedValueOnce({
+				chart: { mark: "bar" },
+				notes: null,
+			});
 
 			await ask(mockClient, mockQueryEngine, "test", {
 				tenantId: "tenant-1",
@@ -271,11 +283,11 @@ describe("routes/query", () => {
 			expect(mockClient.postWithHeaders).toHaveBeenCalledTimes(3); // Initial + 2 retries
 		});
 
-		it("should not generate chart when no rows returned", async () => {
+		it("should generate chart when no rows returned", async () => {
 			mockClient.postWithHeaders.mockResolvedValueOnce({
 				data: {
 					success: true,
-					sql: "DELETE FROM users",
+					sql: "SELECT id FROM users WHERE 1=0",
 					params: [],
 					dialect: "postgres",
 				},
@@ -284,17 +296,101 @@ describe("routes/query", () => {
 
 			mockQueryEngineSetup.validateAndExecute.mockResolvedValue({
 				rows: [],
-				fields: [],
+				fields: ["id"],
+			});
+
+			mockClient.post.mockResolvedValueOnce({
+				chart: {
+					$schema: "https://vega.github.io/schema/vega-lite/v6.json",
+					mark: "bar",
+					encoding: {
+						x: { field: "id", type: "nominal" },
+						y: { aggregate: "count" },
+					},
+					data: { values: [] },
+				},
+				notes: "Empty result chart",
 			});
 
 			const result = await ask(mockClient, mockQueryEngine as any, "test", {
 				tenantId: "tenant-1",
 			});
 
-			expect(result.chart.vegaLiteSpec).toBeUndefined();
-			expect(result.chart.notes).toBe("Query returned no rows.");
+			expect(result.rows).toEqual([]);
+			expect(result.chart.vegaLiteSpec).toMatchObject({
+				mark: "bar",
+				data: { values: [] },
+			});
+			expect(result.chart.notes).toBe("Empty result chart");
 			expect(mockClient.postWithHeaders).toHaveBeenCalledTimes(1);
-			expect(mockClient.post).not.toHaveBeenCalled();
+			expect(mockClient.post).toHaveBeenCalledTimes(1);
+			expect(mockClient.post).toHaveBeenCalledWith(
+				"/chart",
+				expect.objectContaining({
+					fields: ["id"],
+					rows: [],
+				}),
+				"tenant-1",
+				undefined,
+				undefined,
+				undefined,
+				expect.any(String),
+			);
+		});
+
+		it("should generate vizspec when no rows returned", async () => {
+			mockClient.postWithHeaders.mockResolvedValueOnce({
+				data: {
+					success: true,
+					sql: "SELECT month, revenue FROM stats WHERE 1=0",
+					params: [],
+					dialect: "postgres",
+				},
+				headers: mockHeaders(),
+			});
+
+			mockQueryEngineSetup.validateAndExecute.mockResolvedValue({
+				rows: [],
+				fields: ["month", "revenue"],
+			});
+
+			mockClient.post.mockResolvedValueOnce({
+				spec: {
+					version: "1.0",
+					kind: "chart",
+					title: "Revenue",
+					data: { sourceId: "main_query" },
+					encoding: {
+						chartType: "line",
+						x: { field: "month", type: "temporal" },
+						y: { field: "revenue", type: "quantitative" },
+					},
+				},
+				notes: null,
+			});
+
+			const result = await ask(mockClient, mockQueryEngine as any, "monthly revenue", {
+				tenantId: "tenant-1",
+				chartType: "vizspec",
+			});
+
+			expect(result.rows).toEqual([]);
+			expect(result.chart.vizSpec?.encoding).toMatchObject({
+				chartType: "line",
+			});
+			expect(result.chart.notes).toBe("Query returned no rows.");
+			expect(mockClient.post).toHaveBeenCalledWith(
+				"/vizspec",
+				expect.objectContaining({
+					fields: ["month", "revenue"],
+					rows: [],
+				}),
+				"tenant-1",
+				undefined,
+				undefined,
+				undefined,
+				expect.any(String),
+			);
 		});
 
 		it("should pass through query context", async () => {
@@ -313,6 +409,10 @@ describe("routes/query", () => {
 					],
 				},
 				headers: mockHeaders(),
+			});
+			mockClient.post.mockResolvedValueOnce({
+				chart: { mark: "bar" },
+				notes: null,
 			});
 
 			mockQueryEngineSetup.validateAndExecute.mockResolvedValue({
@@ -372,6 +472,10 @@ describe("routes/query", () => {
 					dialect: "postgres",
 				},
 				headers: mockHeaders(),
+			});
+			mockClient.post.mockResolvedValueOnce({
+				chart: { mark: "bar" },
+				notes: null,
 			});
 
 			mockQueryEngineSetup.validateAndExecute.mockResolvedValue({

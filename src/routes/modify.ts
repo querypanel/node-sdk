@@ -643,79 +643,84 @@ export async function modifyChart(
 	);
 	const rows = execution.rows ?? [];
 
-	// Generate chart
+	// Generate chart encoding even when the query returns no rows,
+	// so headless clients can show "No Data" with the correct chart type.
 	let chart: ChartEnvelope = {
 		specType: chartType,
 		notes: rows.length === 0 ? "Query returned no rows." : null,
 	};
 
-	if (rows.length > 0) {
-		// Build viz hints if modifications provided
-		const vizHints = hasVizMods ? buildVizHints(input.vizModifications!) : {};
-		const vizHintsForChart =
-			chartType === "vizspec" ? vizHints : stripVizSpecOnlyHints(vizHints);
+	// Build viz hints if modifications provided
+	const vizHints = hasVizMods ? buildVizHints(input.vizModifications!) : {};
+	const vizHintsForChart =
+		chartType === "vizspec" ? vizHints : stripVizSpecOnlyHints(vizHints);
 
-		if (chartType === "vizspec") {
-			const vizspecResponse = await client.post<ServerVizSpecResponse>(
-				"/vizspec",
-				{
-					question: finalQuestion,
-					sql: finalSql,
-					rationale,
-					fields: execution.fields,
-					rows: anonymizeResults(rows),
-					max_retries: options?.chartMaxRetries ?? 3,
-					query_id: queryId,
-					// Include viz hints for the chart generator
-					...(hasVizMods ? { encoding_hints: vizHintsForChart } : {}),
-					...(options?.supportedChartTypes?.length
-						? { supported_chart_types: options.supportedChartTypes }
-						: {}),
-				},
-				tenantId,
-				options?.userId,
-				options?.scopes,
-				signal,
-				sessionId,
-			);
+	if (chartType === "vizspec") {
+		const vizspecResponse = await client.post<ServerVizSpecResponse>(
+			"/vizspec",
+			{
+				question: finalQuestion,
+				sql: finalSql,
+				rationale,
+				fields: execution.fields,
+				rows: anonymizeResults(rows),
+				max_retries: options?.chartMaxRetries ?? 3,
+				query_id: queryId,
+				// Include viz hints for the chart generator
+				...(hasVizMods ? { encoding_hints: vizHintsForChart } : {}),
+				...(options?.supportedChartTypes?.length
+					? { supported_chart_types: options.supportedChartTypes }
+					: {}),
+			},
+			tenantId,
+			options?.userId,
+			options?.scopes,
+			signal,
+			sessionId,
+		);
 
-			chart = {
-				vizSpec: vizspecResponse.spec,
-				specType: "vizspec",
-				notes: vizspecResponse.notes,
-			};
-		} else {
-			const chartResponse = await client.post<ServerChartResponse>(
-				"/chart",
-				{
-					question: finalQuestion,
-					sql: finalSql,
-					rationale,
-					fields: execution.fields,
-					rows: anonymizeResults(rows),
-					max_retries: options?.chartMaxRetries ?? 3,
-					query_id: queryId,
-					// Include viz hints for the chart generator
-					...(hasVizMods ? { encoding_hints: vizHintsForChart } : {}),
-				},
-				tenantId,
-				options?.userId,
-				options?.scopes,
-				signal,
-				sessionId,
-			);
+		chart = {
+			vizSpec: vizspecResponse.spec,
+			specType: "vizspec",
+			notes:
+				rows.length === 0
+					? (vizspecResponse.notes ?? "Query returned no rows.")
+					: vizspecResponse.notes,
+		};
+	} else {
+		const chartResponse = await client.post<ServerChartResponse>(
+			"/chart",
+			{
+				question: finalQuestion,
+				sql: finalSql,
+				rationale,
+				fields: execution.fields,
+				rows: anonymizeResults(rows),
+				max_retries: options?.chartMaxRetries ?? 3,
+				query_id: queryId,
+				// Include viz hints for the chart generator
+				...(hasVizMods ? { encoding_hints: vizHintsForChart } : {}),
+			},
+			tenantId,
+			options?.userId,
+			options?.scopes,
+			signal,
+			sessionId,
+		);
 
-			chart = {
-				vegaLiteSpec: chartResponse.chart
-					? {
-							...chartResponse.chart,
-							data: { values: rows },
-						}
-					: null,
-				specType: "vega-lite",
-				notes: chartResponse.notes,
-			};
-		}
+		chart = {
+			vegaLiteSpec: chartResponse.chart
+				? {
+						...chartResponse.chart,
+						data: { values: rows },
+					}
+				: null,
+			specType: "vega-lite",
+			notes:
+				rows.length === 0
+					? (chartResponse.notes ?? "Query returned no rows.")
+					: chartResponse.notes,
+		};
 	}
 
 	return {
