@@ -16,6 +16,7 @@ import {
 	anonymizeResults,
 	type ChartEnvelope,
 } from "./query";
+import { throwIfGenerationErrorResponse } from "../errors";
 
 // ============================================================================
 // Input Types for Modifications
@@ -678,6 +679,7 @@ export async function modifyChart(
 			signal,
 			sessionId,
 		);
+		throwIfGenerationErrorResponse(vizspecResponse);
 
 		chart = {
 			vizSpec: vizspecResponse.spec,
@@ -707,6 +709,7 @@ export async function modifyChart(
 			signal,
 			sessionId,
 		);
+		throwIfGenerationErrorResponse(chartResponse);
 
 		chart = {
 			vegaLiteSpec: chartResponse.chart

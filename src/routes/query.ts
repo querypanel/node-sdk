@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import type { IQueryPanelApi } from "../core/api-types";
 import type { ParamRecord, QueryEngine } from "../core/query-engine";
-import { type QueryErrorCode, QueryPipelineError } from "../errors";
+import { type QueryErrorCode, QueryPipelineError, isAiProviderPipelineError, throwIfGenerationErrorResponse } from "../errors";
 import type { ChartType, VizSpec } from "../types/vizspec";
 
 /**
@@ -321,6 +321,7 @@ export async function ask(
 					signal,
 					sessionId,
 				);
+				throwIfGenerationErrorResponse(vizspecResponse);
 
 				chart = {
 					vizSpec: vizspecResponse.spec,
@@ -349,6 +350,7 @@ export async function ask(
 					signal,
 					sessionId,
 				);
+				throwIfGenerationErrorResponse(chartResponse);
 
 				chart = {
 					vegaLiteSpec: chartResponse.chart
@@ -383,6 +385,14 @@ export async function ask(
 				trace: queryResponse.data.trace,
 			};
 		} catch (error) {
+			if (isAiProviderPipelineError(error)) {
+				if (error instanceof QueryPipelineError) {
+					throw error;
+				}
+				const providerError = error as Error & { code: QueryErrorCode };
+				throw new QueryPipelineError(providerError.message, providerError.code);
+			}
+
 			attempt++;
 
 			// If we've exhausted all retries, throw the error

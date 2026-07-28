@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { QueryEngine } from "../core/query-engine";
+import { QueryErrorCode, QueryPipelineError } from "../errors";
 import { createMockQueryPanelApi } from "../test-utils";
 import { anonymizeResults, ask } from "./query";
 
@@ -461,6 +462,76 @@ describe("routes/query", () => {
 			expect(chartCall[1]).toMatchObject({
 				max_retries: 5,
 			});
+		});
+
+		it("should not retry SQL when chart generation fails with AI provider error", async () => {
+			mockClient.postWithHeaders.mockResolvedValueOnce({
+				data: {
+					success: true,
+					sql: "SELECT 1",
+					params: [],
+					dialect: "postgres",
+				},
+				headers: mockHeaders(),
+			});
+
+			mockQueryEngineSetup.validateAndExecute.mockResolvedValue({
+				rows: [{ id: 1 }],
+				fields: ["id"],
+			});
+
+			mockClient.post.mockRejectedValueOnce(
+				new QueryPipelineError(
+					"Invalid API key",
+					QueryErrorCode.AI_PROVIDER_AUTH_FAILED,
+				),
+			);
+
+			await expect(
+				ask(mockClient, mockQueryEngine, "test", {
+					tenantId: "tenant-1",
+					maxRetry: 2,
+				}),
+			).rejects.toMatchObject({
+				code: QueryErrorCode.AI_PROVIDER_AUTH_FAILED,
+			});
+
+			expect(mockClient.postWithHeaders).toHaveBeenCalledTimes(1);
+			expect(mockClient.post).toHaveBeenCalledTimes(1);
+		});
+
+		it("should throw QueryPipelineError when chart response contains provider error", async () => {
+			mockClient.postWithHeaders.mockResolvedValueOnce({
+				data: {
+					success: true,
+					sql: "SELECT 1",
+					params: [],
+					dialect: "postgres",
+				},
+				headers: mockHeaders(),
+			});
+
+			mockQueryEngineSetup.validateAndExecute.mockResolvedValue({
+				rows: [{ id: 1 }],
+				fields: ["id"],
+			});
+
+			mockClient.post.mockResolvedValueOnce({
+				error: "Rate limited",
+				code: QueryErrorCode.AI_PROVIDER_RATE_LIMITED,
+			});
+
+			await expect(
+				ask(mockClient, mockQueryEngine, "test", {
+					tenantId: "tenant-1",
+					maxRetry: 2,
+				}),
+			).rejects.toMatchObject({
+				code: QueryErrorCode.AI_PROVIDER_RATE_LIMITED,
+			});
+
+			expect(mockClient.postWithHeaders).toHaveBeenCalledTimes(1);
+			expect(mockClient.post).toHaveBeenCalledTimes(1);
 		});
 
 		it("should send system_prompt only for v2 pipeline", async () => {

@@ -4,6 +4,7 @@
  */
 
 import crypto from 'node:crypto';
+import { QueryErrorCode, QueryPipelineError, isQueryErrorCode } from '../errors';
 
 // Web Crypto API type declarations (available in Node.js 18+, Deno, and Bun)
 // Minimal type declaration for server-side use without DOM types
@@ -234,10 +235,20 @@ export class ApiClient {
 		}
 
 		if (!response.ok) {
-			const error = new Error(
-				json?.error || response.statusText || "Request failed",
-			);
+			const message =
+				json?.error || response.statusText || "Request failed";
+			if (isQueryErrorCode(json?.code)) {
+				throw new QueryPipelineError(
+					message,
+					json.code,
+					json?.details,
+					response.status,
+				);
+			}
+
+			const error = new Error(message);
 			(error as any).status = response.status;
+			if (json?.code) (error as any).code = json.code;
 			if (json?.details) (error as any).details = json.details;
 			throw error;
 		}

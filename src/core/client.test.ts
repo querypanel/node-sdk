@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ApiClient } from "./client";
+import { QueryErrorCode, QueryPipelineError } from "../errors";
 import { TEST_PRIVATE_KEY, TEST_ORG_ID, TEST_BASE_URL } from "../test-utils";
 
 describe("ApiClient", () => {
@@ -225,6 +226,35 @@ describe("ApiClient", () => {
 				expect(error.message).toBe("Validation failed");
 				expect(error.details).toEqual({ field: "name" });
 				expect(error.status).toBe(400);
+			}
+		});
+
+		it("should throw QueryPipelineError when the API returns a pipeline code", async () => {
+			mockFetch.mockResolvedValue({
+				ok: false,
+				status: 401,
+				statusText: "Unauthorized",
+				text: async () =>
+					JSON.stringify({
+						success: false,
+						error: "The workspace OpenAI API key was rejected.",
+						code: QueryErrorCode.AI_PROVIDER_AUTH_FAILED,
+					}),
+			});
+
+			await expect(client.get("/v2/query", "tenant-1")).rejects.toBeInstanceOf(
+				QueryPipelineError,
+			);
+
+			try {
+				await client.get("/v2/query", "tenant-1");
+				expect.fail("Should have thrown");
+			} catch (error) {
+				expect(error).toBeInstanceOf(QueryPipelineError);
+				expect((error as QueryPipelineError).code).toBe(
+					QueryErrorCode.AI_PROVIDER_AUTH_FAILED,
+				);
+				expect((error as QueryPipelineError).status).toBe(401);
 			}
 		});
 
