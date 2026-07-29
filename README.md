@@ -73,6 +73,7 @@ const response = await qp.ask("Top countries by revenue", {
   tenantId: "tenant_123",
   database: "analytics",
 });
+// Defaults to pipeline "v2" (POST /v2/query). Pass pipeline: "v1" only for legacy.
 
 console.log(response.sql);
 console.log(response.params);
@@ -82,16 +83,17 @@ console.log(response.chart.vegaLiteSpec);
 
 ### Custom system instructions (v2 pipeline)
 
-If you need to enforce tenant-specific policies that should apply to every query (for example, data retention windows), you can inject additional **system prompt** instructions into the v2 pipeline:
+If you need to enforce tenant-specific policies that should apply to every query (for example, data retention windows), you can inject additional **system prompt** instructions into the v2 pipeline (the default):
 
 ```ts
 const response = await qp.ask("Revenue by product", {
   tenantId: "tenant_123",
   database: "analytics",
-  pipeline: "v2",
   systemPrompt: "Retention policy: only query data from the last 30 days.",
 });
 ```
+
+> **Deprecated:** `pipeline: "v1"` still hits `POST /query` for compatibility. Prefer omitting `pipeline` or passing `"v2"`.
 
 ### Restricting VizSpec chart types
 

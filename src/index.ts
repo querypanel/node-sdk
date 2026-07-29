@@ -124,7 +124,7 @@ export type {
 	PipelineTrace,
 } from "./routes/query";
 // Re-export anonymizeResults utility
-export { anonymizeResults } from "./routes/query";
+export { anonymizeResults, resolveQueryPipeline } from "./routes/query";
 export type {
 	SdkSession,
 	SdkSessionTurn,

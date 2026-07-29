@@ -240,9 +240,9 @@ describe("routes/modify", () => {
 					{ tenantId: "tenant-1" },
 				);
 
-				// Should have called /query with modified question
+				// Should have called /v2/query with modified question
 				expect(mockClient.post).toHaveBeenCalledWith(
-					"/query",
+					"/v2/query",
 					expect.objectContaining({
 						question: "revenue over time (group results by month)",
 						previous_sql: "SELECT created_at, revenue FROM orders",
@@ -294,10 +294,10 @@ describe("routes/modify", () => {
 				);
 
 				expect(mockClient.post).toHaveBeenCalledWith(
-					"/query",
+					"/v2/query",
 					expect.objectContaining({
 						question:
-							"show orders (filter date range from 2024-01-01 to 2024-12-31)",
+							"show orders (change date range to 2024-01-01 through 2024-12-31)",
 					}),
 					expect.any(String),
 					undefined,
@@ -340,7 +340,7 @@ describe("routes/modify", () => {
 				);
 
 				expect(mockClient.post).toHaveBeenCalledWith(
-					"/query",
+					"/v2/query",
 					expect.objectContaining({
 						question: "show orders (exclude cancelled orders)",
 					}),
@@ -387,10 +387,10 @@ describe("routes/modify", () => {
 				);
 
 				expect(mockClient.post).toHaveBeenCalledWith(
-					"/query",
+					"/v2/query",
 					expect.objectContaining({
 						question:
-							"revenue (group results by week, filter date range from 2024-01-01, only completed orders)",
+							"revenue (group results by week, change start date to 2024-01-01, only completed orders)",
 					}),
 					expect.any(String),
 					undefined,
@@ -444,7 +444,7 @@ describe("routes/modify", () => {
 				// Should call /query first
 				expect(mockClient.post).toHaveBeenNthCalledWith(
 					1,
-					"/query",
+					"/v2/query",
 					expect.any(Object),
 					expect.any(String),
 					undefined,
@@ -896,7 +896,7 @@ describe("routes/modify", () => {
 				);
 			});
 
-			it("should still include original question for v1 pipeline", async () => {
+			it("should still use deprecated v1 pipeline when explicitly requested", async () => {
 				mockClient.post
 					.mockResolvedValueOnce({
 						success: true,
@@ -925,7 +925,7 @@ describe("routes/modify", () => {
 							additionalInstructions: "exclude cancelled",
 						},
 					},
-					{ tenantId: "tenant-1" },
+					{ tenantId: "tenant-1", pipeline: "v1" },
 				);
 
 				expect(mockClient.post).toHaveBeenCalledWith(
@@ -1102,7 +1102,7 @@ describe("routes/modify", () => {
 				);
 
 				expect(mockClient.post).toHaveBeenCalledWith(
-					"/query",
+					"/v2/query",
 					expect.objectContaining({
 						max_retry: 3,
 					}),
@@ -1188,7 +1188,7 @@ describe("routes/modify", () => {
 				);
 
 				expect(mockClient.post).toHaveBeenCalledWith(
-					"/query",
+					"/v2/query",
 					expect.any(Object),
 					"tenant-1",
 					"user-123",

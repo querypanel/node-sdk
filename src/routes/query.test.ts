@@ -120,8 +120,37 @@ describe("routes/query", () => {
 
 			expect(mockClient.getDefaultTenantId).toHaveBeenCalled();
 			const call = mockClient.postWithHeaders.mock.calls[0];
-			expect(call[0]).toBe("/query");
+			expect(call[0]).toBe("/v2/query");
 			expect(call[2]).toBe("default-tenant"); // tenantId
+		});
+
+		it("should use deprecated v1 pipeline when explicitly requested", async () => {
+			mockClient.postWithHeaders.mockResolvedValueOnce({
+				data: {
+					success: true,
+					sql: "SELECT 1",
+					params: [],
+					dialect: "postgres",
+				},
+				headers: mockHeaders(),
+			});
+			mockClient.post.mockResolvedValueOnce({
+				chart: { mark: "bar" },
+				notes: null,
+			});
+
+			mockQueryEngineSetup.validateAndExecute.mockResolvedValue({
+				rows: [],
+				fields: [],
+			});
+
+			await ask(mockClient, mockQueryEngine, "test", {
+				tenantId: "tenant-1",
+				pipeline: "v1",
+			});
+
+			const call = mockClient.postWithHeaders.mock.calls[0];
+			expect(call[0]).toBe("/query");
 		});
 
 		it("should throw error if no tenant ID available", async () => {

@@ -15,6 +15,7 @@ import {
 	type AskResponse,
 	anonymizeResults,
 	type ChartEnvelope,
+	resolveQueryPipeline,
 } from "./query";
 import { throwIfGenerationErrorResponse } from "../errors";
 
@@ -182,9 +183,10 @@ export interface ChartModifyOptions {
 	/** Chart generation method: 'vega-lite' or 'vizspec' */
 	chartType?: "vega-lite" | "vizspec";
 	/**
-	 * Pipeline version to use for SQL regeneration.
-	 * - "v1" (default): Original query pipeline
-	 * - "v2": Improved pipeline with intent planning, hybrid retrieval, schema linking, and SQL reflection
+	 * Pipeline version for SQL regeneration.
+	 * Defaults to `"v2"` (`POST /v2/query`).
+	 * - `"v2"` (default): intent planning, hybrid retrieval, schema linking, SQL reflection
+	 * - `"v1"` (**deprecated**): legacy `POST /query` pipeline — prefer omitting or `"v2"`
 	 */
 	pipeline?: "v1" | "v2";
 	/**
@@ -550,8 +552,8 @@ export async function modifyChart(
 	const hasVizMods = !!input.vizModifications;
 	const hasCustomSql = !!input.sqlModifications?.customSql;
 
-	const queryEndpoint =
-		options?.pipeline === "v2" ? "/v2/query" : "/query";
+	const pipeline = resolveQueryPipeline(options?.pipeline);
+	const queryEndpoint = pipeline === "v2" ? "/v2/query" : "/query";
 
 	// Determine which SQL to use
 	let finalSql = input.sql;
@@ -592,10 +594,10 @@ export async function modifyChart(
 		const modifiedQuestion = buildModifiedQuestion(
 			input.question,
 			input.sqlModifications!,
-			options?.pipeline,
+			pipeline,
 			hasQuerypanelSessionContext,
 		);
-		if (options?.pipeline === "v2") {
+		if (pipeline === "v2") {
 			finalQuestion = modifiedQuestion;
 		}
 
@@ -623,7 +625,7 @@ export async function modifyChart(
 			? queryResponse.params
 			: [];
 		finalParams = queryEngine.mapGeneratedParams(paramMetadata);
-		if (options?.pipeline === "v2") {
+		if (pipeline === "v2") {
 			applyDateRangeOverrides(
 				input.sqlModifications?.dateRange,
 				finalParams,

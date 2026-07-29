@@ -60,13 +60,14 @@ export interface AskOptions {
 	 */
 	querypanelSessionId?: string;
 	/**
-	 * Pipeline version to use for query generation.
-	 * - "v1" (default): Original query pipeline
-	 * - "v2": Improved pipeline with intent planning, hybrid retrieval, schema linking, and SQL reflection
+	 * Pipeline version for query generation.
+	 * Defaults to `"v2"` (`POST /v2/query`).
+	 * - `"v2"` (default): intent planning, hybrid retrieval, schema linking, SQL reflection
+	 * - `"v1"` (**deprecated**): legacy `POST /query` pipeline — prefer omitting or `"v2"`
 	 */
 	pipeline?: "v1" | "v2";
 	/**
-	 * Optional model id for v2 SQL generation (e.g. OpenAI or `gemini-*` when the API uses Gemini). Omit for server default.
+	 * Optional model id for SQL generation (e.g. OpenAI or `gemini-*` when the API uses Gemini). Omit for server default.
 	 */
 	model?: string;
 	/**
@@ -78,7 +79,7 @@ export interface AskOptions {
 	 * Use this for tenant-specific policies (e.g. retention windows) that must
 	 * be enforced on every query.
 	 *
-	 * Only sent when `pipeline: "v2"`.
+	 * Sent when the resolved pipeline is `"v2"` (the default).
 	 */
 	systemPrompt?: string;
 	/**
@@ -183,6 +184,15 @@ interface ServerVizSpecResponse {
 }
 
 /**
+ * Resolve ask/modify pipeline. Defaults to v2; `"v1"` remains available but deprecated.
+ */
+export function resolveQueryPipeline(
+	pipeline?: "v1" | "v2",
+): "v1" | "v2" {
+	return pipeline ?? "v2";
+}
+
+/**
  * Route module for natural language query generation
  * Simple orchestration following Ousterhout's principle
  */
@@ -201,8 +211,8 @@ export async function ask(
 	let lastError: string | undefined = options.lastError;
 	let previousSql: string | undefined = options.previousSql;
 
-	const queryEndpoint =
-		options.pipeline === "v2" ? "/v2/query" : "/query";
+	const pipeline = resolveQueryPipeline(options.pipeline);
+	const queryEndpoint = pipeline === "v2" ? "/v2/query" : "/query";
 
 	while (attempt <= maxRetry) {
 		// Step 1: Get SQL from backend
@@ -233,7 +243,7 @@ export async function ask(
 				...(databaseName ? { database: databaseName } : {}),
 				...(metadata?.dialect ? { dialect: metadata.dialect } : {}),
 				...(options.model?.trim() ? { model: options.model.trim() } : {}),
-				...(options.pipeline === "v2" && options.systemPrompt?.trim()
+				...(pipeline === "v2" && options.systemPrompt?.trim()
 					? { system_prompt: options.systemPrompt.trim() }
 					: {}),
 				debug: options.debug ?? false,
