@@ -56,7 +56,7 @@ const createPostgresClient = () => async (sql: string, params?: unknown[]) => {
 	});
 
 qp.attachClickhouse(
-  "clicks", // uniq identifier for QueryPanel
+  "analytics", // uniq identifier for QueryPanel
   (params) => clickhouse.query(params),
   {
     database: "analytics", // database name
@@ -65,15 +65,10 @@ qp.attachClickhouse(
   },
 );
 
-// Syncs schema. Skips embedding if schema hasn't changed (no drift).
-// Pass { forceReindex: true } to force re-embedding.
-await qp.syncSchema("analytics", { tenantId: "tenant_123" });
-
 const response = await qp.ask("Top countries by revenue", {
   tenantId: "tenant_123",
   database: "analytics",
 });
-// Defaults to pipeline "v2" (POST /v2/query). Pass pipeline: "v1" only for legacy.
 
 console.log(response.sql);
 console.log(response.params);
@@ -81,9 +76,33 @@ console.table(response.rows);
 console.log(response.chart.vegaLiteSpec);
 ```
 
-### Custom system instructions (v2 pipeline)
+Run `syncSchema` separately — see [Schema sync](#schema-sync).
 
-If you need to enforce tenant-specific policies that should apply to every query (for example, data retention windows), you can inject additional **system prompt** instructions into the v2 pipeline (the default):
+### Schema sync
+
+`syncSchema` introspects an attached database and uploads table/column metadata so natural-language questions can generate accurate SQL. Treat it like a **migration**, not part of `ask()`:
+
+- Run it once when you first connect a database.
+- Run it again when tables or columns change.
+- Do not call it on every request — put it in a setup/deploy script instead.
+
+```ts
+// scripts/sync-schema.ts — run once at setup, or after schema changes
+await qp.syncSchema("pg_demo", { tenantId: "tenant_123" });
+await qp.syncSchema("analytics", { tenantId: "tenant_123" });
+
+// Unchanged schemas skip re-embedding. Force a rebuild only when needed:
+await qp.syncSchema("analytics", {
+  tenantId: "tenant_123",
+  forceReindex: true,
+});
+```
+
+Optionally limit the payload with `tables: ["orders"]`.
+
+### Custom system instructions
+
+If you need to enforce tenant-specific policies that should apply to every query (for example, data retention windows), inject additional **system prompt** instructions:
 
 ```ts
 const response = await qp.ask("Revenue by product", {
@@ -93,11 +112,9 @@ const response = await qp.ask("Revenue by product", {
 });
 ```
 
-> **Deprecated:** `pipeline: "v1"` still hits `POST /query` for compatibility. Prefer omitting `pipeline` or passing `"v2"`.
+### Restricting chart types
 
-### Restricting VizSpec chart types
-
-If your UI only supports a subset of VizSpec chart kinds (for example no area or scatter), set **`supportedChartTypes`** on the SDK constructor or on each `ask` / `modifyChart` call. The API’s `/vizspec` step then steers generation toward allowed types only (`line`, `bar`, `column`, `area`, `scatter`, `pie`). This applies whenever you use **`chartType: "vizspec"`** (including the default v2 flow after SQL runs).
+If your UI only supports a subset of chart kinds (for example no area or scatter), set **`supportedChartTypes`** on the SDK constructor or on each `ask` / `modifyChart` call (`line`, `bar`, `column`, `area`, `scatter`, `pie`).
 
 ```ts
 import { QueryPanelSdkAPI, ALL_VIZ_CHART_TYPES, type ChartType } from "@querypanel/sdk";
@@ -112,8 +129,6 @@ const qp = new QueryPanelSdkAPI(url, privateKey, workspaceId, {
 await qp.ask("Revenue by month", {
   tenantId: "t1",
   database: "analytics",
-  chartType: "vizspec",
-  pipeline: "v2",
   supportedChartTypes: allowed,
 });
 ```
