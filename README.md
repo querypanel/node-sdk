@@ -100,15 +100,41 @@ await qp.syncSchema("analytics", {
 
 Optionally limit the payload with `tables: ["orders"]`.
 
-### Custom system instructions
+### Custom system prompt (`systemPrompt`)
 
-If you need to enforce tenant-specific policies that should apply to every query (for example, data retention windows), inject additional **system prompt** instructions:
+Pass `systemPrompt` on `ask()` to inject extra instructions for SQL generation. Use it when a **client** needs policies QueryPanel does not know about — retention windows, a max date range, excluded event types, and similar product rules. Look up that client’s config in your backend and pass it on every question.
+
+The text is appended to the SQL generator (and reflection) prompts. When it conflicts with generic defaults (for example the usual 30-day trend window), the caller instructions win. It does **not** replace tenant isolation — still attach with `tenantFieldName` and pass `tenantId`. Max length is 8,000 characters. There is no constructor default; `modifyChart()` does not take `systemPrompt`.
 
 ```ts
-const response = await qp.ask("Revenue by product", {
-  tenantId: "tenant_123",
+function systemPromptForClient(client: { retentionDays: number }) {
+  return [
+    `Data retention: only query rows from the last ${client.retentionDays} days.`,
+    `Never return a date range longer than ${client.retentionDays} days, even if the user asks for all time or a wider window.`,
+    "Clamp any requested range to that maximum and bind start/end dates as parameters.",
+  ].join(" ");
+}
+
+const client = await loadClient(req); // your auth + billing/retention settings
+
+const response = await qp.ask("Revenue by product over all time", {
+  tenantId: client.tenantId,
   database: "analytics",
-  systemPrompt: "Retention policy: only query data from the last 30 days.",
+  systemPrompt: systemPromptForClient(client),
+});
+```
+
+Other per-client instructions:
+
+```ts
+const response = await qp.ask("Show order volume by week", {
+  tenantId: client.tenantId,
+  database: "analytics",
+  systemPrompt: [
+    "Default time range: last 90 days unless the user names a shorter window.",
+    "Maximum lookback: 90 days from today.",
+    "Exclude orders with status refunded or cancelled.",
+  ].join(" "),
 });
 ```
 
