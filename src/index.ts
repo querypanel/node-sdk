@@ -184,6 +184,16 @@ export interface QueryPanelSdkAPIOptions {
 	supportedChartTypes?: ChartType[];
 }
 
+function resolveAttachEnforceTenantIsolation(
+	tenantFieldName: string | undefined,
+	enforceTenantIsolation: boolean | undefined,
+): boolean | undefined {
+	if (enforceTenantIsolation !== undefined) {
+		return enforceTenantIsolation;
+	}
+	return tenantFieldName ? true : undefined;
+}
+
 /**
  * Main SDK class - Thin orchestrator
  * Delegates to deep modules (ApiClient or custom API, QueryEngine, route modules)
@@ -286,9 +296,10 @@ export class QueryPanelSdkAPI {
 			tags: options?.tags,
 			tenantFieldName: options?.tenantFieldName,
 			tenantFieldType: options?.tenantFieldType ?? "String",
-			enforceTenantIsolation: options?.tenantFieldName
-				? (options?.enforceTenantIsolation ?? true)
-				: undefined,
+			enforceTenantIsolation: resolveAttachEnforceTenantIsolation(
+				options?.tenantFieldName,
+				options?.enforceTenantIsolation,
+			),
 		};
 
 		this.queryEngine.attachDatabase(name, adapter, metadata);
@@ -314,9 +325,10 @@ export class QueryPanelSdkAPI {
 			tags: options?.tags,
 			tenantFieldName: options?.tenantFieldName,
 			tenantFieldType: options?.tenantFieldType ?? "String",
-			enforceTenantIsolation: options?.tenantFieldName
-				? (options?.enforceTenantIsolation ?? true)
-				: undefined,
+			enforceTenantIsolation: resolveAttachEnforceTenantIsolation(
+				options?.tenantFieldName,
+				options?.enforceTenantIsolation,
+			),
 		};
 
 		this.queryEngine.attachDatabase(name, adapter, metadata);
@@ -342,9 +354,10 @@ export class QueryPanelSdkAPI {
 			tags: options?.tags,
 			tenantFieldName: options?.tenantFieldName,
 			tenantFieldType: options?.tenantFieldType ?? "String",
-			enforceTenantIsolation: options?.tenantFieldName
-				? (options?.enforceTenantIsolation ?? true)
-				: undefined,
+			enforceTenantIsolation: resolveAttachEnforceTenantIsolation(
+				options?.tenantFieldName,
+				options?.enforceTenantIsolation,
+			),
 		};
 
 		this.queryEngine.attachDatabase(name, adapter, metadata);

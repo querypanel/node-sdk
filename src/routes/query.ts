@@ -221,13 +221,18 @@ export async function ask(
 			? queryEngine.getDatabaseMetadata(databaseName)
 			: undefined;
 
-		// Include tenant settings if available in metadata
 		let tenantSettings: Record<string, unknown> | undefined;
-		if (metadata?.tenantFieldName) {
+		if (metadata?.enforceTenantIsolation === false) {
+			tenantSettings = {
+				tenantFieldName: metadata.tenantFieldName ?? "",
+				tenantFieldType: metadata.tenantFieldType ?? "String",
+				enforceTenantIsolation: false,
+			};
+		} else if (metadata?.tenantFieldName) {
 			tenantSettings = {
 				tenantFieldName: metadata.tenantFieldName,
 				tenantFieldType: metadata.tenantFieldType,
-				enforceTenantIsolation: metadata.enforceTenantIsolation,
+				enforceTenantIsolation: true,
 			};
 		}
 

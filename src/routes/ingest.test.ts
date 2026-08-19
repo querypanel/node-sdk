@@ -350,6 +350,40 @@ describe("routes/ingest", () => {
 			});
 		});
 
+		it("should include tenant_settings with isolation off", async () => {
+			const metadata = {
+				name: "test-db",
+				dialect: "postgres" as const,
+				tenantFieldName: "tenant_id",
+				tenantFieldType: "String",
+				enforceTenantIsolation: false,
+			};
+
+			(mockQueryEngine.getDatabaseMetadata as any).mockReturnValue(metadata);
+			(mockAdapter.introspect as any).mockResolvedValue({
+				db: { kind: "postgres", name: "test-db" },
+				tables: [],
+				introspectedAt: "2025-01-01T00:00:00Z",
+			});
+			(mockClient.post as any).mockResolvedValue({
+				success: true,
+				message: "Schema synced",
+				chunks: 0,
+				chunks_with_annotations: 0,
+			});
+
+			await syncSchema(mockClient, mockQueryEngine, "test-db", {
+				tenantId: "tenant-1",
+			});
+
+			const payload = (mockClient.post as any).mock.calls[0][1] as any;
+			expect(payload.tenant_settings).toEqual({
+				tenantFieldName: "tenant_id",
+				tenantFieldType: "String",
+				enforceTenantIsolation: false,
+			});
+		});
+
 		it("should not include tenant_settings when metadata is not configured", async () => {
 			(mockQueryEngine.getDatabaseMetadata as any).mockReturnValue(undefined);
 			(mockAdapter.introspect as any).mockResolvedValue({

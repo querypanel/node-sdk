@@ -128,15 +128,17 @@ function buildSchemaRequest(
 	};
 
 	// Include tenant_settings if configured in the database metadata
-	if (
-		metadata?.tenantFieldName &&
-		metadata?.tenantFieldType &&
-		metadata?.enforceTenantIsolation !== undefined
-	) {
+	if (metadata?.enforceTenantIsolation === false) {
+		request.tenant_settings = {
+			tenantFieldName: metadata.tenantFieldName ?? "",
+			tenantFieldType: metadata.tenantFieldType ?? "String",
+			enforceTenantIsolation: false,
+		};
+	} else if (metadata?.tenantFieldName && metadata?.tenantFieldType) {
 		request.tenant_settings = {
 			tenantFieldName: metadata.tenantFieldName,
 			tenantFieldType: metadata.tenantFieldType,
-			enforceTenantIsolation: metadata.enforceTenantIsolation,
+			enforceTenantIsolation: true,
 		};
 	}
 
