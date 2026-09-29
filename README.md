@@ -286,9 +286,37 @@ const { data, missingIds } = await qp.getChartsByIds(
 Saved charts now include the original `prompt` so you can show the question
 alongside chart history or reuse it in follow-up workflows.
 
+## Referencing Queries by `queryId` (recommended)
+
+`ask()` and `modifyChart()` return a server-issued `queryId`. The server stores the generated SQL and bind params for that id, scoped to the authenticated workspace and tenant. **Pass the id instead of SQL** so your clients never send executable SQL or bind params:
+
+```ts
+const response = await qp.ask("revenue by country", { tenantId, database: "analytics" });
+
+// Modify: SQL and params are loaded from the server, client `sql` / `params` are ignored
+const modified = await qp.modifyChart(
+  { queryId: response.queryId, question: "revenue by country", database: "analytics",
+    vizModifications: { chartType: "bar" } },
+  { tenantId },
+);
+
+// Run a stored query (e.g. in a dashboard)
+await qp.runSqlForDashboard({ queryId: response.queryId, database: "analytics" }, { tenantId });
+
+// Save a chart: the server stores the SQL and params it holds for `query_id`
+await qp.createChart({ title: "Revenue", query_id: modified.queryId, vega_lite_spec: spec }, { tenantId });
+```
+
+- When `queryId` / `query_id` is present it **takes priority**: any `sql` / `sql_params` you also send is ignored.
+- An id that belongs to another tenant, or does not exist, is rejected (`404`).
+- `sql` is still accepted when no id is sent, for backward compatibility. Charts saved without a `query_id` (for example older charts) keep using their stored SQL.
+- `modifyChart()` returns the input `queryId` when only visualization changes, and a new `queryId` when SQL is regenerated. Custom SQL (`customSql`) has no id.
+- Generation fails if the server cannot record the query, so a successful `ask()` always returns a `queryId`.
+- Requires an API that supports `GET /v2/queries/:id`; upgrade the API before the SDK.
+
 ## Modifying Charts
 
-The `modifyChart()` method allows you to edit SQL and/or visualization settings, then re-execute and regenerate charts. It works with both fresh `ask()` responses and saved charts.
+The `modifyChart()` method allows you to edit SQL and/or visualization settings, then re-execute and regenerate charts. It works with both fresh `ask()` responses and saved charts. Prefer `queryId` over `sql` (see above).
 
 ### Changing Visualization Settings
 

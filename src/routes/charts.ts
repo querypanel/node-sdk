@@ -24,10 +24,15 @@ export interface ChartCreateInput {
 	title: string;
 	prompt?: string;
 	description?: string;
-	sql: string;
+	/**
+	 * Required when `query_id` is not provided. Ignored (with `sql_params`) when
+	 * `query_id` is present: the server saves the SQL and params it stored for that query.
+	 */
+	sql?: string;
 	sql_params?: Record<string, unknown>;
 	vega_lite_spec: Record<string, unknown>;
 	spec_type?: 'vega-lite' | 'vizspec'; // Defaults to 'vega-lite' if not specified
+	/** Server-issued query id from ask() / modifyChart(). Preferred over `sql`. */
 	query_id?: string;
 	target_db?: string;
 }
@@ -38,6 +43,8 @@ export interface ChartUpdateInput {
 	description?: string;
 	sql?: string;
 	sql_params?: Record<string, unknown>;
+	/** When present, the server replaces sql / sql_params with the stored query. */
+	query_id?: string;
 	vega_lite_spec?: Record<string, unknown>;
 	spec_type?: 'vega-lite' | 'vizspec';
 	target_db?: string;

@@ -30,6 +30,7 @@ import * as chartsRoute from "./routes/charts";
 import * as dashboardsRoute from "./routes/dashboards";
 import * as ingestRoute from "./routes/ingest";
 import * as modifyRoute from "./routes/modify";
+import * as queriesRoute from "./routes/queries";
 import * as queryRoute from "./routes/query";
 import * as sessionsRoute from "./routes/sessions";
 import * as vizspecRoute from "./routes/vizspec";
@@ -505,7 +506,13 @@ export class QueryPanelSdkAPI {
 	 */
 	async runSqlForDashboard(
 		input: {
-			sql: string;
+			/**
+			 * Server-issued id from ask() / modifyChart(). Takes priority: the stored SQL
+			 * and params are executed and `sql` / `params` are ignored.
+			 */
+			queryId?: string;
+			/** Required when `queryId` is not provided (backward compatible raw SQL). */
+			sql?: string;
 			params?: Record<string, unknown>;
 			database?: string;
 		},
@@ -516,9 +523,23 @@ export class QueryPanelSdkAPI {
 			throw new Error("tenantId is required");
 		}
 		const databaseName = input.database ?? "db";
-		const params = (input.params ?? {}) as ParamRecord;
+		let sql = input.sql;
+		let params = (input.params ?? {}) as ParamRecord;
+		if (input.queryId) {
+			const resolved = await queriesRoute.resolveQuery(
+				this.client,
+				this.queryEngine,
+				input.queryId,
+				{ tenantId },
+			);
+			sql = resolved.sql;
+			params = resolved.params;
+		}
+		if (!sql) {
+			throw new Error("Either queryId or sql is required");
+		}
 		const result = await this.queryEngine.validateAndExecute(
-			input.sql,
+			sql,
 			params,
 			databaseName,
 			tenantId,

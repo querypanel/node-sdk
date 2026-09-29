@@ -18,6 +18,7 @@ import {
 	resolveQueryPipeline,
 } from "./query";
 import { throwIfGenerationErrorResponse } from "../errors";
+import { resolveQuery } from "./queries";
 
 // ============================================================================
 // Input Types for Modifications
@@ -127,11 +128,23 @@ export interface VizModifications {
  */
 export interface ChartModifyInput {
 	/**
-	 * The SQL query to modify or re-execute.
+	 * Server-issued id of the query to modify or re-execute.
+	 * From ask() / modifyChart() response: response.queryId
+	 * From saved chart: chart.query_id
+	 *
+	 * Preferred over `sql`: when present the SQL and params are loaded from the server
+	 * (scoped to the authenticated tenant) and `sql` / `params` are ignored.
+	 */
+	queryId?: string;
+
+	/**
+	 * The SQL query to modify or re-execute. Required when `queryId` is not provided.
 	 * From ask() response: response.sql
 	 * From saved chart: chart.sql
+	 *
+	 * Kept for backward compatibility; prefer `queryId`.
 	 */
-	sql: string;
+	sql?: string;
 
 	/**
 	 * The original natural language question.
@@ -555,12 +568,30 @@ export async function modifyChart(
 	const pipeline = resolveQueryPipeline(options?.pipeline);
 	const queryEndpoint = pipeline === "v2" ? "/v2/query" : "/query";
 
-	// Determine which SQL to use
-	let finalSql = input.sql;
+	// Determine which SQL to use. A queryId takes priority: the server-stored SQL and
+	// params are used and any client-supplied sql / params are ignored.
+	let currentSql = input.sql;
 	let finalParams = input.params ?? {};
 	let paramMetadata: Array<Record<string, unknown>> = [];
 	let rationale: string | undefined;
 	let queryId: string | undefined;
+	if (input.queryId) {
+		const resolved = await resolveQuery(
+			client,
+			queryEngine,
+			input.queryId,
+			{ tenantId, userId: options?.userId, scopes: options?.scopes },
+			signal,
+		);
+		currentSql = resolved.sql;
+		finalParams = resolved.params;
+		paramMetadata = resolved.paramMetadata;
+		queryId = resolved.queryId;
+	}
+	if (!currentSql) {
+		throw new Error("modifyChart requires either queryId or sql.");
+	}
+	let finalSql = currentSql;
 	let sqlChanged = false;
 	let finalQuestion = input.question;
 
@@ -593,6 +624,8 @@ export async function modifyChart(
 		finalSql = input.sqlModifications!.customSql!;
 		finalParams = {};
 		paramMetadata = [];
+		// Client-supplied SQL is not a server-generated query, so it has no id.
+		queryId = undefined;
 		sqlChanged = true;
 	}
 	// Path 2: SQL modifications (non-custom) - regenerate via query endpoint
@@ -612,7 +645,7 @@ export async function modifyChart(
 			{
 				question: modifiedQuestion,
 				session_id: querypanelSessionId,
-				previous_sql: input.sql,
+				previous_sql: currentSql,
 				...(options?.maxRetry ? { max_retry: options.maxRetry } : {}),
 				...(tenantSettings ? { tenant_settings: tenantSettings } : {}),
 				...(databaseName ? { database: databaseName } : {}),
@@ -640,7 +673,7 @@ export async function modifyChart(
 		}
 		rationale = queryResponse.rationale;
 		queryId = queryResponse.queryId;
-		sqlChanged = finalSql !== input.sql;
+		sqlChanged = finalSql !== currentSql;
 	}
 
 	// Execute the SQL
