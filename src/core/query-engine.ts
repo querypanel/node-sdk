@@ -1,6 +1,6 @@
 import type { DatabaseAdapter, DatabaseDialect } from "../adapters/types";
 import { mapGeneratedParams as mapGeneratedParamsFromMetadata } from "./map-generated-params";
-import type { ParamRecord, ParamValue } from "./param-types";
+import type { ParamRecord } from "./param-types";
 
 export type { ParamRecord, ParamValue } from "./param-types";
 

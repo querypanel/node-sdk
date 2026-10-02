@@ -5,7 +5,10 @@ import { modifyChart } from "./modify";
 
 describe("routes/modify", () => {
 	let mockClient: ReturnType<typeof createMockQueryPanelApi>;
-	let mockQueryEngine: QueryEngine;
+	let mockQueryEngine: QueryEngine & {
+		validateAndExecute: Mock<QueryEngine["validateAndExecute"]>;
+		getDefaultDatabase: Mock<QueryEngine["getDefaultDatabase"]>;
+	};
 
 	beforeEach(() => {
 		mockClient = createMockQueryPanelApi({
@@ -28,7 +31,7 @@ describe("routes/modify", () => {
 				return record;
 			}),
 			validateAndExecute: vi.fn(),
-		} as unknown as QueryEngine;
+		} as unknown as typeof mockQueryEngine;
 	});
 
 	describe("modifyChart", () => {

@@ -13,7 +13,9 @@ import {
 
 describe("routes/charts", () => {
 	let mockClient: ReturnType<typeof createMockQueryPanelApi>;
-	let mockQueryEngine: QueryEngine;
+	let mockQueryEngine: QueryEngine & {
+		validateAndExecute: Mock<QueryEngine["validateAndExecute"]>;
+	};
 
 	beforeEach(() => {
 		mockClient = createMockQueryPanelApi({
@@ -27,7 +29,7 @@ describe("routes/charts", () => {
 		mockQueryEngine = {
 			validateAndExecute: vi.fn(),
 			getDefaultDatabase: vi.fn(() => "default-db"),
-		} as unknown as QueryEngine;
+		} as unknown as typeof mockQueryEngine;
 	});
 
 	describe("createChart", () => {

@@ -1,5 +1,4 @@
 import crypto from 'node:crypto';
-import type { ApiClient } from "../core/client";
 import type { IQueryPanelApi } from "../core/api-types";
 import type { ChartType, EncodingHints, VizSpec } from "../types/vizspec";
 

@@ -4,7 +4,7 @@
  */
 
 import crypto from 'node:crypto';
-import { QueryErrorCode, QueryPipelineError, isQueryErrorCode } from '../errors';
+import { QueryPipelineError, isQueryErrorCode } from '../errors';
 
 // Web Crypto API type declarations (available in Node.js 18+, Deno, and Bun)
 // Minimal type declaration for server-side use without DOM types
@@ -25,13 +25,18 @@ interface CryptoKey {
 	>;
 }
 
+type FetchLike = (
+	input: Parameters<typeof fetch>[0],
+	init?: Parameters<typeof fetch>[1],
+) => ReturnType<typeof fetch>;
+
 export class ApiClient {
 	private readonly baseUrl: string;
 	private readonly privateKey: string;
 	private readonly organizationId: string;
 	private readonly defaultTenantId?: string;
 	private readonly additionalHeaders?: Record<string, string>;
-	private readonly fetchImpl: typeof fetch;
+	private readonly fetchImpl: FetchLike;
 	private cryptoKey: CryptoKey | null = null;
 
 	constructor(
@@ -41,7 +46,7 @@ export class ApiClient {
 		options?: {
 			defaultTenantId?: string;
 			additionalHeaders?: Record<string, string>;
-			fetch?: typeof fetch;
+			fetch?: FetchLike;
 		},
 	) {
 		if (!baseUrl) {

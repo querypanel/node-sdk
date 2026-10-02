@@ -37,6 +37,8 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 !package.json
 !package-lock.json
 !bun.lockb
+!tsconfig.json
+!tsconfig.*.json
 !node-sdk/package.json
 !node-sdk/tsconfig.json
 !node-sdk/tsup.config.ts

@@ -225,7 +225,7 @@ describe("routes/query", () => {
 				});
 			mockClient.post.mockResolvedValueOnce(chartResponse);
 
-			mockQueryEngine.validateAndExecute
+			mockQueryEngineSetup.validateAndExecute
 				.mockRejectedValueOnce(new Error("Table does not exist"))
 				.mockResolvedValueOnce({
 					rows: [{ id: 1 }],
@@ -264,7 +264,7 @@ describe("routes/query", () => {
 					headers: mockHeaders(),
 				});
 
-			mockQueryEngine.validateAndExecute
+			mockQueryEngineSetup.validateAndExecute
 				.mockRejectedValueOnce(new Error("Syntax error"))
 				.mockResolvedValueOnce({
 					rows: [],
@@ -299,7 +299,7 @@ describe("routes/query", () => {
 				headers: mockHeaders(),
 			});
 
-			mockQueryEngine.validateAndExecute.mockRejectedValue(
+			mockQueryEngineSetup.validateAndExecute.mockRejectedValue(
 				new Error("Persistent error"),
 			);
 

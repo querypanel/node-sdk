@@ -118,7 +118,7 @@ describe("query id contract (node-sdk)", () => {
 					queryId: QUERY_ID,
 					question: "names",
 					database: "db",
-					sqlModifications: { limit: 5 },
+					sqlModifications: { additionalInstructions: "only show top 5" },
 				},
 				{ tenantId: "tenant-1", pipeline: "v2" },
 			);
