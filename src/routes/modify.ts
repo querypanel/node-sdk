@@ -196,12 +196,11 @@ export interface ChartModifyOptions {
 	/** Chart generation method: 'vega-lite' or 'vizspec' */
 	chartType?: "vega-lite" | "vizspec";
 	/**
-	 * Pipeline version for SQL regeneration.
-	 * Defaults to `"v2"` (`POST /v2/query`).
-	 * - `"v2"` (default): intent planning, hybrid retrieval, schema linking, SQL reflection
-	 * - `"v1"` (**deprecated**): legacy `POST /query` pipeline — prefer omitting or `"v2"`
+	 * Query pipeline. Only `"v2"` is accepted (`POST /v2/query`).
+	 * `"v1"` was removed: passing it fails typecheck and throws at runtime.
+	 * Omit this field; chart modifications always use v2.
 	 */
-	pipeline?: "v1" | "v2";
+	pipeline?: "v2";
 	/**
 	 * QueryPanel session ID for context-aware follow-ups.
 	 * Pass the querypanelSessionId from a previous ask() response
@@ -270,7 +269,6 @@ interface ServerVizSpecResponse {
 function buildModifiedQuestion(
 	originalQuestion: string,
 	modifications: SqlModifications,
-	pipeline?: "v1" | "v2",
 	hasSessionContext = false,
 ): string {
 	const hints: string[] = [];
@@ -280,28 +278,15 @@ function buildModifiedQuestion(
 	}
 
 	if (modifications.dateRange) {
-		if (pipeline === "v2") {
-			const from = normalizeDateInput(modifications.dateRange.from);
-			const to = normalizeDateInput(modifications.dateRange.to);
+		const from = normalizeDateInput(modifications.dateRange.from);
+		const to = normalizeDateInput(modifications.dateRange.to);
 
-			if (from && to) {
-				hints.push(`change date range to ${from} through ${to}`);
-			} else if (from) {
-				hints.push(`change start date to ${from}`);
-			} else if (to) {
-				hints.push(`change end date to ${to}`);
-			}
-		} else {
-			const parts: string[] = [];
-			if (modifications.dateRange.from) {
-				parts.push(`from ${modifications.dateRange.from}`);
-			}
-			if (modifications.dateRange.to) {
-				parts.push(`to ${modifications.dateRange.to}`);
-			}
-			if (parts.length > 0) {
-				hints.push(`filter date range ${parts.join(" ")}`);
-			}
+		if (from && to) {
+			hints.push(`change date range to ${from} through ${to}`);
+		} else if (from) {
+			hints.push(`change start date to ${from}`);
+		} else if (to) {
+			hints.push(`change end date to ${to}`);
 		}
 	}
 
@@ -313,9 +298,8 @@ function buildModifiedQuestion(
 		return originalQuestion;
 	}
 
-	// v2 can use hints-only instructions when we are continuing an existing
-	// QueryPanel session that already contains the original question context.
-	if (pipeline === "v2" && hasSessionContext) {
+	// Hints-only when continuing a QueryPanel session that already has the question.
+	if (hasSessionContext) {
 		return hints.join(", ");
 	}
 
@@ -565,8 +549,8 @@ export async function modifyChart(
 	const hasVizMods = !!input.vizModifications;
 	const hasCustomSql = !!input.sqlModifications?.customSql;
 
-	const pipeline = resolveQueryPipeline(options?.pipeline);
-	const queryEndpoint = pipeline === "v2" ? "/v2/query" : "/query";
+	resolveQueryPipeline(options?.pipeline);
+	const queryEndpoint = "/v2/query";
 
 	// Determine which SQL to use. A queryId takes priority: the server-stored SQL and
 	// params are used and any client-supplied sql / params are ignored.
@@ -633,12 +617,9 @@ export async function modifyChart(
 		const modifiedQuestion = buildModifiedQuestion(
 			input.question,
 			input.sqlModifications!,
-			pipeline,
 			hasQuerypanelSessionContext,
 		);
-		if (pipeline === "v2") {
-			finalQuestion = modifiedQuestion;
-		}
+		finalQuestion = modifiedQuestion;
 
 		const queryResponse = await client.post<ServerQueryResponse>(
 			queryEndpoint,
@@ -664,13 +645,11 @@ export async function modifyChart(
 			? queryResponse.params
 			: [];
 		finalParams = queryEngine.mapGeneratedParams(paramMetadata);
-		if (pipeline === "v2") {
-			applyDateRangeOverrides(
-				input.sqlModifications?.dateRange,
-				finalParams,
-				paramMetadata,
-			);
-		}
+		applyDateRangeOverrides(
+			input.sqlModifications?.dateRange,
+			finalParams,
+			paramMetadata,
+		);
 		rationale = queryResponse.rationale;
 		queryId = queryResponse.queryId;
 		sqlChanged = finalSql !== currentSql;

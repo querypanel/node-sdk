@@ -544,7 +544,7 @@ Every request is signed with `RS256` using the private key you pass to the const
 
 - HTTP errors propagate as thrown `Error` instances that include `status` (and `details` when available).
 - `syncSchema` automatically skips embedding if the schema hasn't changed (drift detection). Use `syncSchema(..., { forceReindex: true })` to force updates.
-- `ask()` raises immediately for guardrail/moderation errors because `/query` responds with 4xx/5xx.
+- `ask()` raises immediately for guardrail/moderation errors because `/v2/query` responds with 4xx/5xx. `pipeline: "v1"` is not accepted.
 
 ### Automatic SQL repair and retry
 

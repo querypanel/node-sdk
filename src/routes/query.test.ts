@@ -124,33 +124,15 @@ describe("routes/query", () => {
 			expect(call[2]).toBe("default-tenant"); // tenantId
 		});
 
-		it("should use deprecated v1 pipeline when explicitly requested", async () => {
-			mockClient.postWithHeaders.mockResolvedValueOnce({
-				data: {
-					success: true,
-					sql: "SELECT 1",
-					params: [],
-					dialect: "postgres",
-				},
-				headers: mockHeaders(),
-			});
-			mockClient.post.mockResolvedValueOnce({
-				chart: { mark: "bar" },
-				notes: null,
-			});
+		it("rejects removed pipeline v1 instead of calling POST /query", async () => {
+			await expect(
+				ask(mockClient, mockQueryEngine, "test", {
+					tenantId: "tenant-1",
+					pipeline: "v1" as "v2",
+				}),
+			).rejects.toThrow(/POST \/v2\/query/);
 
-			mockQueryEngineSetup.validateAndExecute.mockResolvedValue({
-				rows: [],
-				fields: [],
-			});
-
-			await ask(mockClient, mockQueryEngine, "test", {
-				tenantId: "tenant-1",
-				pipeline: "v1",
-			});
-
-			const call = mockClient.postWithHeaders.mock.calls[0];
-			expect(call[0]).toBe("/query");
+			expect(mockClient.postWithHeaders).not.toHaveBeenCalled();
 		});
 
 		it("should throw error if no tenant ID available", async () => {
@@ -563,7 +545,7 @@ describe("routes/query", () => {
 			expect(mockClient.post).toHaveBeenCalledTimes(1);
 		});
 
-		it("should send system_prompt only for v2 pipeline", async () => {
+		it("should send system_prompt on ask", async () => {
 			mockClient.postWithHeaders.mockResolvedValueOnce({
 				data: {
 					success: true,

@@ -899,49 +899,24 @@ describe("routes/modify", () => {
 				);
 			});
 
-			it("should still use deprecated v1 pipeline when explicitly requested", async () => {
-				mockClient.post
-					.mockResolvedValueOnce({
-						success: true,
-						sql: "SELECT * FROM orders",
-						params: [],
-						dialect: "postgres",
-					})
-					.mockResolvedValueOnce({
-						chart: { mark: "bar" },
-						notes: null,
-					});
-
-				mockQueryEngine.validateAndExecute.mockResolvedValue({
-					rows: [{ id: 1 }],
-					fields: ["id"],
-				});
-
-				await modifyChart(
-					mockClient,
-					mockQueryEngine,
-					{
-						sql: "SELECT * FROM orders",
-						question: "show orders",
-						database: "test-db",
-						sqlModifications: {
-							additionalInstructions: "exclude cancelled",
+			it("rejects removed pipeline v1 instead of calling POST /query", async () => {
+				await expect(
+					modifyChart(
+						mockClient,
+						mockQueryEngine,
+						{
+							sql: "SELECT * FROM orders",
+							question: "show orders",
+							database: "test-db",
+							sqlModifications: {
+								additionalInstructions: "exclude cancelled",
+							},
 						},
-					},
-					{ tenantId: "tenant-1", pipeline: "v1" },
-				);
+						{ tenantId: "tenant-1", pipeline: "v1" as "v2" },
+					),
+				).rejects.toThrow(/POST \/v2\/query/);
 
-				expect(mockClient.post).toHaveBeenCalledWith(
-					"/query",
-					expect.objectContaining({
-						question: "show orders (exclude cancelled)",
-					}),
-					expect.any(String),
-					undefined,
-					undefined,
-					undefined,
-					expect.any(String),
-				);
+				expect(mockClient.post).not.toHaveBeenCalled();
 			});
 		});
 

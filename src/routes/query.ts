@@ -60,12 +60,11 @@ export interface AskOptions {
 	 */
 	querypanelSessionId?: string;
 	/**
-	 * Pipeline version for query generation.
-	 * Defaults to `"v2"` (`POST /v2/query`).
-	 * - `"v2"` (default): intent planning, hybrid retrieval, schema linking, SQL reflection
-	 * - `"v1"` (**deprecated**): legacy `POST /query` pipeline — prefer omitting or `"v2"`
+	 * Query pipeline. Only `"v2"` is accepted (`POST /v2/query`).
+	 * `"v1"` was removed: passing it fails typecheck and throws at runtime.
+	 * Omit this field; asks always use v2.
 	 */
-	pipeline?: "v1" | "v2";
+	pipeline?: "v2";
 	/**
 	 * Optional model id for SQL generation (e.g. OpenAI or `gemini-*` when the API uses Gemini). Omit for server default.
 	 */
@@ -79,7 +78,7 @@ export interface AskOptions {
 	 * Use this for tenant-specific policies (e.g. retention windows) that must
 	 * be enforced on every query.
 	 *
-	 * Sent when the resolved pipeline is `"v2"` (the default).
+	 * Sent on every ask (`POST /v2/query`).
 	 */
 	systemPrompt?: string;
 	/**
@@ -184,12 +183,17 @@ interface ServerVizSpecResponse {
 }
 
 /**
- * Resolve ask/modify pipeline. Defaults to v2; `"v1"` remains available but deprecated.
+ * Resolve ask/modify pipeline. Always `"v2"` (`POST /v2/query`).
+ * Throws if a removed pipeline such as `"v1"` is passed.
  */
-export function resolveQueryPipeline(
-	pipeline?: "v1" | "v2",
-): "v1" | "v2" {
-	return pipeline ?? "v2";
+export function resolveQueryPipeline(pipeline?: "v2"): "v2" {
+	const requested: string | undefined = pipeline;
+	if (requested != null && requested !== "v2") {
+		throw new Error(
+			`Query pipeline "${requested}" was removed. ask() and modifyChart() always use POST /v2/query.`,
+		);
+	}
+	return "v2";
 }
 
 /**
@@ -211,8 +215,8 @@ export async function ask(
 	let lastError: string | undefined = options.lastError;
 	let previousSql: string | undefined = options.previousSql;
 
-	const pipeline = resolveQueryPipeline(options.pipeline);
-	const queryEndpoint = pipeline === "v2" ? "/v2/query" : "/query";
+	resolveQueryPipeline(options.pipeline);
+	const queryEndpoint = "/v2/query";
 
 	while (attempt <= maxRetry) {
 		// Step 1: Get SQL from backend
@@ -248,7 +252,7 @@ export async function ask(
 				...(databaseName ? { database: databaseName } : {}),
 				...(metadata?.dialect ? { dialect: metadata.dialect } : {}),
 				...(options.model?.trim() ? { model: options.model.trim() } : {}),
-				...(pipeline === "v2" && options.systemPrompt?.trim()
+				...(options.systemPrompt?.trim()
 					? { system_prompt: options.systemPrompt.trim() }
 					: {}),
 				debug: options.debug ?? false,
