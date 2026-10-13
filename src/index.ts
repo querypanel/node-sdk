@@ -544,6 +544,11 @@ export class QueryPanelSdkAPI {
 			databaseName,
 			tenantId,
 		);
+		if (input.queryId) {
+			await queriesRoute.markQueryExecuted(this.client, input.queryId, {
+				tenantId,
+			});
+		}
 		return { rows: result.rows, fields: result.fields };
 	}
 

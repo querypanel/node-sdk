@@ -214,6 +214,7 @@ export async function ask(
 	let attempt = 0;
 	let lastError: string | undefined = options.lastError;
 	let previousSql: string | undefined = options.previousSql;
+	let parentQueryId: string | undefined;
 
 	resolveQueryPipeline(options.pipeline);
 	const queryEndpoint = "/v2/query";
@@ -255,6 +256,7 @@ export async function ask(
 				...(options.systemPrompt?.trim()
 					? { system_prompt: options.systemPrompt.trim() }
 					: {}),
+				...(parentQueryId ? { parent_query_id: parentQueryId } : {}),
 				debug: options.debug ?? false,
 			},
 			tenantId,
@@ -280,6 +282,10 @@ export async function ask(
 		const dialect = queryResponse.data.dialect;
 		if (!sql || !dialect) {
 			throw new Error("Query response missing required SQL or dialect");
+		}
+
+		if (queryResponse.data.queryId) {
+			parentQueryId = queryResponse.data.queryId;
 		}
 
 		const dbName =

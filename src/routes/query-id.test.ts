@@ -224,6 +224,13 @@ describe("query id contract (node-sdk)", () => {
 					tenantId: "tenant-1",
 				}),
 			);
+			expect(handler).toHaveBeenCalledWith(
+				expect.objectContaining({
+					method: "POST",
+					path: `/v2/queries/${QUERY_ID}/executed`,
+					tenantId: "tenant-1",
+				}),
+			);
 			expect(validateAndExecute).toHaveBeenCalledWith(
 				STORED_SQL,
 				{ customer_id: "tenant-1" },

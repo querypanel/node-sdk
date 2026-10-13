@@ -233,6 +233,7 @@ describe("routes/query", () => {
 						sql: "SELECT * FROM users",
 						params: [],
 						dialect: "postgres",
+						queryId: "query-1",
 					},
 					headers: mockHeaders(),
 				})
@@ -242,6 +243,7 @@ describe("routes/query", () => {
 						sql: "SELECT * FROM users",
 						params: [],
 						dialect: "postgres",
+						queryId: "query-2",
 					},
 					headers: mockHeaders(),
 				});
@@ -267,6 +269,7 @@ describe("routes/query", () => {
 				question: "test",
 				last_error: "Syntax error",
 				previous_sql: "SELECT * FROM users",
+				parent_query_id: "query-1",
 			});
 		});
 

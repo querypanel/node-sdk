@@ -58,3 +58,27 @@ export async function resolveQuery(
 		dialect: response.dialect,
 	};
 }
+
+/**
+ * Mark a stored query as EXECUTED after local SQL succeeds.
+ * Best-effort: never fails the caller. No-op when the row is already SUCCESS.
+ */
+export async function markQueryExecuted(
+	client: IQueryPanelApi,
+	queryId: string,
+	options: ResolveQueryOptions,
+	signal?: AbortSignal,
+): Promise<void> {
+	try {
+		await client.post(
+			`/v2/queries/${encodeURIComponent(queryId)}/executed`,
+			{},
+			options.tenantId,
+			options.userId,
+			options.scopes,
+			signal,
+		);
+	} catch {
+		// Headless metrics must not break execution.
+	}
+}
