@@ -310,6 +310,66 @@ describe("routes/modify", () => {
 				);
 			});
 
+			it("should substitute date params without regenerating SQL when start/end params exist", async () => {
+				const originalSql =
+					"SELECT * FROM orders WHERE created_at >= {start_date:Date} AND created_at <= {end_date:Date}";
+
+				mockClient.post.mockResolvedValueOnce({
+					chart: { mark: "line" },
+					notes: null,
+				});
+
+				mockQueryEngine.validateAndExecute.mockResolvedValue({
+					rows: [{ id: 1 }],
+					fields: ["id"],
+				});
+
+				const result = await modifyChart(
+					mockClient,
+					mockQueryEngine,
+					{
+						sql: originalSql,
+						question: "show orders",
+						database: "test-db",
+						params: {
+							start_date: "2024-01-01",
+							end_date: "2024-01-31",
+						},
+						sqlModifications: {
+							dateRange: { from: "2024-06-01", to: "2024-06-30" },
+						},
+					},
+					{ tenantId: "tenant-1" },
+				);
+
+				expect(result.sql).toBe(originalSql);
+				expect(result.modified.sqlChanged).toBe(false);
+				expect(result.params).toEqual({
+					start_date: "2024-06-01",
+					end_date: "2024-06-30",
+				});
+				// Only chart generation — no /v2/query
+				expect(mockClient.post).toHaveBeenCalledTimes(1);
+				expect(mockClient.post).not.toHaveBeenCalledWith(
+					"/v2/query",
+					expect.anything(),
+					expect.anything(),
+					expect.anything(),
+					expect.anything(),
+					expect.anything(),
+					expect.anything(),
+				);
+				expect(mockQueryEngine.validateAndExecute).toHaveBeenCalledWith(
+					originalSql,
+					{
+						start_date: "2024-06-01",
+						end_date: "2024-06-30",
+					},
+					"test-db",
+					"tenant-1",
+				);
+			});
+
 			it("should include additional instructions in modified question", async () => {
 				mockClient.post
 					.mockResolvedValueOnce({

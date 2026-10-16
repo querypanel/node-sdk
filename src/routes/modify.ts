@@ -379,6 +379,60 @@ function normalizeGeneratedParamKey(
 		.trim();
 }
 
+function collectParamKeys(
+	params: ParamRecord,
+	paramMetadata: Array<Record<string, unknown>>,
+): string[] {
+	const keys = new Set<string>(Object.keys(params));
+	for (let i = 0; i < paramMetadata.length; i++) {
+		const param = paramMetadata[i];
+		if (!param) continue;
+		keys.add(normalizeGeneratedParamKey(param, i));
+	}
+	return [...keys];
+}
+
+/**
+ * True when date-range-only SQL mods can be applied by substituting existing
+ * start/end-like params (no NL→SQL regeneration).
+ */
+export function canSubstituteDateRangeParams(
+	dateRange: DateRangeInput | undefined,
+	params: ParamRecord,
+	paramMetadata: Array<Record<string, unknown>> = [],
+): boolean {
+	if (!dateRange) return false;
+	const from = normalizeDateInput(dateRange.from);
+	const to = normalizeDateInput(dateRange.to);
+	if (!from && !to) return false;
+
+	const keys = collectParamKeys(params, paramMetadata);
+	if (keys.length === 0) return false;
+
+	const hasStart = keys.some((key) => keyLooksLikeDateBoundary(key, "start"));
+	const hasEnd = keys.some((key) => keyLooksLikeDateBoundary(key, "end"));
+
+	if (from && !hasStart) return false;
+	if (to && !hasEnd) return false;
+	return true;
+}
+
+/** Date-range only (no custom SQL, granularity, or extra NL instructions). */
+export function isDateRangeOnlySqlModification(
+	modifications: SqlModifications | undefined,
+): boolean {
+	if (!modifications?.dateRange) return false;
+	if (modifications.customSql) return false;
+	if (modifications.timeGranularity) return false;
+	if (
+		typeof modifications.additionalInstructions === "string" &&
+		modifications.additionalInstructions.trim().length > 0
+	) {
+		return false;
+	}
+	return true;
+}
+
 function applyDateRangeOverrides(
 	dateRange: DateRangeInput | undefined,
 	params: ParamRecord,
@@ -612,7 +666,26 @@ export async function modifyChart(
 		queryId = undefined;
 		sqlChanged = true;
 	}
-	// Path 2: SQL modifications (non-custom) - regenerate via query endpoint
+	// Path 2a: Date-range only + existing start/end params → substitute, keep SQL
+	else if (
+		hasSqlMods &&
+		!hasCustomSql &&
+		isDateRangeOnlySqlModification(input.sqlModifications) &&
+		canSubstituteDateRangeParams(
+			input.sqlModifications?.dateRange,
+			finalParams,
+			paramMetadata,
+		)
+	) {
+		finalParams = { ...finalParams };
+		applyDateRangeOverrides(
+			input.sqlModifications?.dateRange,
+			finalParams,
+			paramMetadata,
+		);
+		sqlChanged = false;
+	}
+	// Path 2b: SQL modifications (non-custom) - regenerate via query endpoint
 	else if (hasSqlMods && !hasCustomSql) {
 		const modifiedQuestion = buildModifiedQuestion(
 			input.question,
