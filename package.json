@@ -1,7 +1,7 @@
 {
 	"name": "@querypanel/node-sdk",
 	"version": "1.3.3",
-	"description": "TypeScript/Node.js SDK for the QueryPanel API",
+	"description": "Node.js SDK for QueryPanel embedded analytics: mint RS256 tenant JWTs, sync Postgres/ClickHouse/BigQuery schemas, and run natural-language-to-SQL with queries executed on your servers.",
 	"license": "UNLICENSED",
 	"type": "module",
 	"repository": {
@@ -21,7 +21,19 @@
 		"typescript",
 		"text-to-dashboard",
 		"natural-language-to-sql",
-		"text-to-sql"
+		"text-to-sql",
+		"embedded-analytics",
+		"customer-facing-analytics",
+		"multi-tenant",
+		"tenant-isolation",
+		"jwt",
+		"postgres",
+		"postgresql",
+		"clickhouse",
+		"bigquery",
+		"saas",
+		"ai-analytics",
+		"dashboards"
 	],
 	"main": "dist/index.cjs",
 	"module": "dist/index.js",

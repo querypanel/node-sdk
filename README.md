@@ -1,13 +1,28 @@
 # QueryPanel Node SDK
 
+`@querypanel/node-sdk` is the headless, server-side SDK for [QueryPanel](https://querypanel.io) embedded analytics. Use it in your Node.js (18+), Bun, or Deno backend to mint RS256 tenant JWTs, sync your Postgres, ClickHouse, or BigQuery schema, and turn natural-language questions into SQL (natural-language-to-SQL / text-to-SQL) for multi-tenant SaaS products. The generated SQL runs against your database through a client function you provide, so database credentials and query results stay on your servers. For chart generation the SDK sends column names and value types, not row values (see `anonymizeResults`).
+
+- Docs: [querypanel.io/docs/node-sdk](https://querypanel.io/docs/node-sdk)
+- Tenant isolation: [querypanel.io/docs/tenant-isolation](https://querypanel.io/docs/tenant-isolation)
+- JWT setup: [querypanel.io/docs/jwt](https://querypanel.io/docs/jwt)
+
+## When to use the Node SDK vs the React SDK
+
+- **[React SDK](https://www.npmjs.com/package/@querypanel/react-sdk) (headful, start here for React apps):** `@querypanel/react-sdk` renders customer-facing dashboards with an AI assistant and per-tenant customization directly in your React tree, not an iframe ([why that matters](https://querypanel.io/blog/iframe-vs-native-react-embedded-analytics-2026)). It still needs this package on your server to mint the tenant JWT (`createJwt`).
+- **Node SDK (this package, headless):** use it alone when you build your own UI and want `ask()` to return SQL, rows, and a chart spec from your API routes.
+
+How it compares to other embedded analytics tools: [querypanel.io/compare](https://querypanel.io/compare).
+
+## Overview
+
 A TypeScript-first client for the QueryPanel Bun/Hono API. Its primary function is to **generate SQL from natural language**, but it also signs JWTs with your service private key, syncs database schemas, enforces tenant isolation, and wraps every public route under `src/routes/` (query, ingest, charts, active charts, and knowledge base).
 
 ## Installation
 
 ```bash
-bun add @querypanel/sdk
+bun add @querypanel/node-sdk
 # or
-npm install @querypanel/sdk
+npm install @querypanel/node-sdk
 ```
 
 > **Runtime:** Node.js 18+, Deno, or Bun. The SDK uses Web Crypto API for JWT signing and the native `fetch` API, making it compatible with modern JavaScript runtimes.
@@ -15,8 +30,9 @@ npm install @querypanel/sdk
 ## Quickstart
 
 ```ts
-import { QueryPanelSdkAPI } from "@querypanel/sdk";
+import { QueryPanelSdkAPI } from "@querypanel/node-sdk";
 import { Pool } from "pg";
+import { createClient } from "@clickhouse/client";
 
 const qp = new QueryPanelSdkAPI(
   process.env.QUERYPANEL_URL!,
@@ -42,21 +58,24 @@ const createPostgresClient = () => async (sql: string, params?: unknown[]) => {
   }
 };
 
-	// Attach PostgreSQL database using the SDK's PostgresAdapter
-	// The SDK will automatically handle tenant isolation when tenantFieldName is provided
-	qp.attachPostgres(
-  "pg_demo",  // a uniq identifier for QueryPanel
-  createPostgresClientFn(),
+// Attach PostgreSQL database using the SDK's PostgresAdapter
+// The SDK will automatically handle tenant isolation when tenantFieldName is provided
+qp.attachPostgres(
+  "pg_demo", // a unique identifier for QueryPanel
+  createPostgresClient(),
   {
-		database: "pg_demo", // database name
-		description: "PostgreSQL demo database", // some description that QueryPanel can use
-		tenantFieldName: "tenant_id", // SDK will automatically filter by tenant_id
-		enforceTenantIsolation: true, // Ensures all queries include tenant_id filter
-		allowedTables: ["orders"], // Only sync 'orders' table - 'users' will be excluded
-	});
+    database: "pg_demo", // database name
+    description: "PostgreSQL demo database", // some description that QueryPanel can use
+    tenantFieldName: "tenant_id", // SDK will automatically filter by tenant_id
+    enforceTenantIsolation: true, // Ensures all queries include tenant_id filter
+    allowedTables: ["orders"], // Only sync 'orders' table - 'users' will be excluded
+  },
+);
+
+const clickhouse = createClient({ url: process.env.CLICKHOUSE_URL });
 
 qp.attachClickhouse(
-  "analytics", // uniq identifier for QueryPanel
+  "analytics", // unique identifier for QueryPanel
   (params) => clickhouse.query(params),
   {
     database: "analytics", // database name
@@ -143,7 +162,7 @@ const response = await qp.ask("Show order volume by week", {
 If your UI only supports a subset of chart kinds (for example no area or scatter), set **`supportedChartTypes`** on the SDK constructor or on each `ask` / `modifyChart` call (`line`, `bar`, `column`, `area`, `scatter`, `pie`).
 
 ```ts
-import { QueryPanelSdkAPI, ALL_VIZ_CHART_TYPES, type ChartType } from "@querypanel/sdk";
+import { QueryPanelSdkAPI, ALL_VIZ_CHART_TYPES, type ChartType } from "@querypanel/node-sdk";
 
 const allowed: ChartType[] = ["line", "bar", "column", "pie"];
 
@@ -512,7 +531,7 @@ The API accepts up to **100** UUIDs per request. Examples: `?ids=a&ids=b` or `?i
 The SDK is fully compatible with Deno (including Supabase Edge Functions) thanks to its use of Web Crypto API for JWT signing. No additional configuration needed:
 
 ```ts
-import { QueryPanelSdkAPI } from "https://esm.sh/@querypanel/sdk";
+import { QueryPanelSdkAPI } from "https://esm.sh/@querypanel/node-sdk";
 
 const qp = new QueryPanelSdkAPI(
   Deno.env.get("QUERYPANEL_URL")!,
@@ -526,10 +545,12 @@ const response = await qp.ask("Show top products", {
 });
 ```
 
+BigQuery is attached the same way with `attachBigQuery(name, clientFn, options)`. Any other engine can be plugged in with `attachDatabase(name, adapter)` and your own `DatabaseAdapter` implementation.
+
 ## Building locally
 
 ```bash
-cd node-sdk
+cd admin/packages/node-sdk
 bun install
 bun run build
 ```
@@ -571,4 +592,4 @@ Without `maxRetry`, execution errors throw immediately (default behavior).
 
 ## Need more?
 
-Open an issue or extend `node-sdk/src/index.ts`—every route lives in one file. Pull requests are welcome for additional adapters, richer param coercion, or convenience helpers around charts/annotations.
+Open an issue or extend the SDK: the public class is in `src/index.ts` and each API route has a module under `src/routes/`. Pull requests are welcome for additional adapters, richer param coercion, or convenience helpers around charts/annotations.
