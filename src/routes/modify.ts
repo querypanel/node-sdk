@@ -202,6 +202,13 @@ export interface ChartModifyOptions {
 	 */
 	pipeline?: "v2";
 	/**
+	 * Fast path for structured controls (pinned charts): date-only changes
+	 * substitute params or call `/v2/rewrite-datefilter` instead of `/v2/query`,
+	 * and chart generation is skipped when the caller keeps its own encoding
+	 * (`chart.vizSpec` / `vegaLiteSpec` are then omitted). Default: false.
+	 */
+	lightweight?: boolean;
+	/**
 	 * QueryPanel session ID for context-aware follow-ups.
 	 * Pass the querypanelSessionId from a previous ask() response
 	 * to preserve conversation history when modifying charts.
@@ -306,6 +313,7 @@ function buildModifiedQuestion(
 	return `${originalQuestion} (${hints.join(", ")})`;
 }
 
+const REWRITE_DATEFILTER_ENDPOINT = "/v2/rewrite-datefilter";
 const START_PARAM_KEY_REGEX = /(^|_)(start|from)(_|$)/i;
 const END_PARAM_KEY_REGEX = /(^|_)(end|to)(_|$)/i;
 const ISO_DATETIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z?$/;
@@ -392,12 +400,88 @@ function collectParamKeys(
 	return [...keys];
 }
 
+/** `$1` → `1`, `{start_date:Date}` → `start_date`, `@start_date` → `start_date`. */
+function placeholderKey(token: string): string {
+	if (token.startsWith("$") || token.startsWith("@")) return token.slice(1);
+	return token.slice(1, -1).replace(/:.+$/, "").trim();
+}
+
+function isDateLike(value: unknown): boolean {
+	return typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value.trim());
+}
+
+/**
+ * Param keys the SQL uses as a date bound (`created_at >= $1`, `{start_date:Date}`).
+ * Postgres stores both the `$n` key it binds and a named alias; only the `$n` key
+ * changes the query.
+ */
+function dateBoundKeysFromSql(sql: string): {
+	start: Set<string>;
+	end: Set<string>;
+} {
+	const start = new Set<string>();
+	const end = new Set<string>();
+	const comparison =
+		/(>=|<=|>|<)\s*(\$\d+|\{[^}]+\}|@[A-Za-z_][\w]*)/g;
+	const between =
+		/BETWEEN\s+(\$\d+|\{[^}]+\}|@[A-Za-z_][\w]*)\s+AND\s+(\$\d+|\{[^}]+\}|@[A-Za-z_][\w]*)/gi;
+
+	for (const match of sql.matchAll(comparison)) {
+		const key = placeholderKey(match[2] ?? "");
+		if (!key) continue;
+		if (match[1] === ">=" || match[1] === ">") start.add(key);
+		else end.add(key);
+	}
+
+	for (const match of sql.matchAll(between)) {
+		const startKey = placeholderKey(match[1] ?? "");
+		const endKey = placeholderKey(match[2] ?? "");
+		if (startKey) start.add(startKey);
+		if (endKey) end.add(endKey);
+	}
+
+	return { start, end };
+}
+
+function paramValueForKey(
+	key: string,
+	params: ParamRecord,
+	paramMetadata: Array<Record<string, unknown>>,
+): unknown {
+	if (key in params) return params[key];
+	for (let i = 0; i < paramMetadata.length; i++) {
+		const param = paramMetadata[i];
+		if (!param) continue;
+		if (normalizeGeneratedParamKey(param, i) === key) return param.value;
+	}
+	return undefined;
+}
+
+/** Date-like params this range can overwrite: SQL placeholders plus named aliases. */
+function dateBoundKeys(
+	sql: string,
+	params: ParamRecord,
+	paramMetadata: Array<Record<string, unknown>>,
+	boundary: "start" | "end",
+): string[] {
+	const fromSql = dateBoundKeysFromSql(sql)[boundary];
+	const keys: string[] = [];
+	for (const key of collectParamKeys(params, paramMetadata)) {
+		const named = keyLooksLikeDateBoundary(key, boundary);
+		if (!named && !fromSql.has(key)) continue;
+		if (!isDateLike(paramValueForKey(key, params, paramMetadata))) continue;
+		keys.push(key);
+	}
+	return keys;
+}
+
 /**
  * True when date-range-only SQL mods can be applied by substituting existing
- * start/end-like params (no NL→SQL regeneration).
+ * start/end params (no NL→SQL regeneration).
  */
-export function canSubstituteDateRangeParams(
+function canSubstituteDateRangeParams(
 	dateRange: DateRangeInput | undefined,
+	sql: string,
 	params: ParamRecord,
 	paramMetadata: Array<Record<string, unknown>> = [],
 ): boolean {
@@ -406,19 +490,17 @@ export function canSubstituteDateRangeParams(
 	const to = normalizeDateInput(dateRange.to);
 	if (!from && !to) return false;
 
-	const keys = collectParamKeys(params, paramMetadata);
-	if (keys.length === 0) return false;
-
-	const hasStart = keys.some((key) => keyLooksLikeDateBoundary(key, "start"));
-	const hasEnd = keys.some((key) => keyLooksLikeDateBoundary(key, "end"));
-
-	if (from && !hasStart) return false;
-	if (to && !hasEnd) return false;
+	if (from && dateBoundKeys(sql, params, paramMetadata, "start").length === 0) {
+		return false;
+	}
+	if (to && dateBoundKeys(sql, params, paramMetadata, "end").length === 0) {
+		return false;
+	}
 	return true;
 }
 
 /** Date-range only (no custom SQL, granularity, or extra NL instructions). */
-export function isDateRangeOnlySqlModification(
+function isDateRangeOnlySqlModification(
 	modifications: SqlModifications | undefined,
 ): boolean {
 	if (!modifications?.dateRange) return false;
@@ -435,6 +517,7 @@ export function isDateRangeOnlySqlModification(
 
 function applyDateRangeOverrides(
 	dateRange: DateRangeInput | undefined,
+	sql: string,
 	params: ParamRecord,
 	paramMetadata: Array<Record<string, unknown>>,
 ): void {
@@ -444,12 +527,19 @@ function applyDateRangeOverrides(
 	const to = normalizeDateInput(dateRange.to);
 	if (!from && !to) return;
 
+	const startKeys = new Set(
+		from ? dateBoundKeys(sql, params, paramMetadata, "start") : [],
+	);
+	const endKeys = new Set(
+		to ? dateBoundKeys(sql, params, paramMetadata, "end") : [],
+	);
+
 	for (const [key, value] of Object.entries(params)) {
-		if (from && keyLooksLikeDateBoundary(key, "start")) {
-			params[key] = formatDateOverride(from, "start", value);
+		if (startKeys.has(key)) {
+			params[key] = formatDateOverride(from ?? "", "start", value);
 		}
-		if (to && keyLooksLikeDateBoundary(key, "end")) {
-			params[key] = formatDateOverride(to, "end", value);
+		if (endKeys.has(key)) {
+			params[key] = formatDateOverride(to ?? "", "end", value);
 		}
 	}
 
@@ -458,13 +548,22 @@ function applyDateRangeOverrides(
 		if (!param) continue;
 		const key = normalizeGeneratedParamKey(param, i);
 
-		if (from && keyLooksLikeDateBoundary(key, "start")) {
-			param.value = formatDateOverride(from, "start", param.value);
+		if (startKeys.has(key)) {
+			param.value = formatDateOverride(from ?? "", "start", param.value);
 		}
-		if (to && keyLooksLikeDateBoundary(key, "end")) {
-			param.value = formatDateOverride(to, "end", param.value);
+		if (endKeys.has(key)) {
+			param.value = formatDateOverride(to ?? "", "end", param.value);
 		}
 	}
+}
+
+/** Previous params for rewrite-datefilter: prefer metadata, else `{name,value}` entries. */
+function buildPreviousParams(
+	params: ParamRecord,
+	paramMetadata: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+	if (paramMetadata.length > 0) return paramMetadata;
+	return Object.entries(params).map(([name, value]) => ({ name, value }));
 }
 
 /**
@@ -602,6 +701,13 @@ export async function modifyChart(
 	const hasSqlMods = !!input.sqlModifications;
 	const hasVizMods = !!input.vizModifications;
 	const hasCustomSql = !!input.sqlModifications?.customSql;
+	// `lightweight` (pinned chart controls): the caller reapplies the previous
+	// chart encoding, so date-only changes avoid NL→SQL and no chart LLM runs.
+	const lightweight = options?.lightweight === true;
+	const dateOnly =
+		lightweight && isDateRangeOnlySqlModification(input.sqlModifications);
+	const skipChartLlm =
+		lightweight && !hasCustomSql && (dateOnly || (hasVizMods && !hasSqlMods));
 
 	resolveQueryPipeline(options?.pipeline);
 	const queryEndpoint = "/v2/query";
@@ -668,11 +774,10 @@ export async function modifyChart(
 	}
 	// Path 2a: Date-range only + existing start/end params → substitute, keep SQL
 	else if (
-		hasSqlMods &&
-		!hasCustomSql &&
-		isDateRangeOnlySqlModification(input.sqlModifications) &&
+		dateOnly &&
 		canSubstituteDateRangeParams(
 			input.sqlModifications?.dateRange,
+			finalSql,
 			finalParams,
 			paramMetadata,
 		)
@@ -680,12 +785,14 @@ export async function modifyChart(
 		finalParams = { ...finalParams };
 		applyDateRangeOverrides(
 			input.sqlModifications?.dateRange,
+			finalSql,
 			finalParams,
 			paramMetadata,
 		);
 		sqlChanged = false;
 	}
-	// Path 2b: SQL modifications (non-custom) - regenerate via query endpoint
+	// Path 2b: SQL modifications (non-custom) - regenerate via query endpoint,
+	// or via the cheaper date-filter rewrite when only the date range changed.
 	else if (hasSqlMods && !hasCustomSql) {
 		const modifiedQuestion = buildModifiedQuestion(
 			input.question,
@@ -694,18 +801,39 @@ export async function modifyChart(
 		);
 		finalQuestion = modifiedQuestion;
 
+		const sharedBody = {
+			session_id: querypanelSessionId,
+			previous_sql: currentSql,
+			...(tenantSettings ? { tenant_settings: tenantSettings } : {}),
+			...(databaseName ? { database: databaseName } : {}),
+			...(metadata?.dialect ? { dialect: metadata.dialect } : {}),
+			debug: options?.debug ?? false,
+		};
+		const [endpoint, body] = dateOnly
+			? [
+					REWRITE_DATEFILTER_ENDPOINT,
+					{
+						...sharedBody,
+						question: input.question,
+						previous_params: buildPreviousParams(finalParams, paramMetadata),
+						date_range: {
+							from: normalizeDateInput(input.sqlModifications?.dateRange?.from),
+							to: normalizeDateInput(input.sqlModifications?.dateRange?.to),
+						},
+					},
+				]
+			: [
+					queryEndpoint,
+					{
+						...sharedBody,
+						question: modifiedQuestion,
+						...(options?.maxRetry ? { max_retry: options.maxRetry } : {}),
+					},
+				];
+
 		const queryResponse = await client.post<ServerQueryResponse>(
-			queryEndpoint,
-			{
-				question: modifiedQuestion,
-				session_id: querypanelSessionId,
-				previous_sql: currentSql,
-				...(options?.maxRetry ? { max_retry: options.maxRetry } : {}),
-				...(tenantSettings ? { tenant_settings: tenantSettings } : {}),
-				...(databaseName ? { database: databaseName } : {}),
-				...(metadata?.dialect ? { dialect: metadata.dialect } : {}),
-				debug: options?.debug ?? false,
-			},
+			endpoint,
+			body,
 			tenantId,
 			options?.userId,
 			options?.scopes,
@@ -720,6 +848,7 @@ export async function modifyChart(
 		finalParams = queryEngine.mapGeneratedParams(paramMetadata);
 		applyDateRangeOverrides(
 			input.sqlModifications?.dateRange,
+			finalSql,
 			finalParams,
 			paramMetadata,
 		);
@@ -749,7 +878,7 @@ export async function modifyChart(
 	const vizHintsForChart =
 		chartType === "vizspec" ? vizHints : stripVizSpecOnlyHints(vizHints);
 
-	if (chartType === "vizspec") {
+	if (!skipChartLlm && chartType === "vizspec") {
 		const vizspecResponse = await client.post<ServerVizSpecResponse>(
 			"/vizspec",
 			{
@@ -782,7 +911,7 @@ export async function modifyChart(
 					? (vizspecResponse.notes ?? "Query returned no rows.")
 					: vizspecResponse.notes,
 		};
-	} else {
+	} else if (!skipChartLlm) {
 		const chartResponse = await client.post<ServerChartResponse>(
 			"/chart",
 			{

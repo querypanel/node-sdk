@@ -310,66 +310,6 @@ describe("routes/modify", () => {
 				);
 			});
 
-			it("should substitute date params without regenerating SQL when start/end params exist", async () => {
-				const originalSql =
-					"SELECT * FROM orders WHERE created_at >= {start_date:Date} AND created_at <= {end_date:Date}";
-
-				mockClient.post.mockResolvedValueOnce({
-					chart: { mark: "line" },
-					notes: null,
-				});
-
-				mockQueryEngine.validateAndExecute.mockResolvedValue({
-					rows: [{ id: 1 }],
-					fields: ["id"],
-				});
-
-				const result = await modifyChart(
-					mockClient,
-					mockQueryEngine,
-					{
-						sql: originalSql,
-						question: "show orders",
-						database: "test-db",
-						params: {
-							start_date: "2024-01-01",
-							end_date: "2024-01-31",
-						},
-						sqlModifications: {
-							dateRange: { from: "2024-06-01", to: "2024-06-30" },
-						},
-					},
-					{ tenantId: "tenant-1" },
-				);
-
-				expect(result.sql).toBe(originalSql);
-				expect(result.modified.sqlChanged).toBe(false);
-				expect(result.params).toEqual({
-					start_date: "2024-06-01",
-					end_date: "2024-06-30",
-				});
-				// Only chart generation — no /v2/query
-				expect(mockClient.post).toHaveBeenCalledTimes(1);
-				expect(mockClient.post).not.toHaveBeenCalledWith(
-					"/v2/query",
-					expect.anything(),
-					expect.anything(),
-					expect.anything(),
-					expect.anything(),
-					expect.anything(),
-					expect.anything(),
-				);
-				expect(mockQueryEngine.validateAndExecute).toHaveBeenCalledWith(
-					originalSql,
-					{
-						start_date: "2024-06-01",
-						end_date: "2024-06-30",
-					},
-					"test-db",
-					"tenant-1",
-				);
-			});
-
 			it("should include additional instructions in modified question", async () => {
 				mockClient.post
 					.mockResolvedValueOnce({
@@ -1245,6 +1185,190 @@ describe("routes/modify", () => {
 					expect.any(String),
 				);
 			});
+		});
+	});
+
+	describe("lightweight mode (pinned chart controls)", () => {
+		const execution = { rows: [{ id: 1 }], fields: ["id"] };
+		const options = { tenantId: "tenant-1", lightweight: true };
+
+		beforeEach(() => {
+			mockQueryEngine.validateAndExecute.mockResolvedValue(execution);
+		});
+
+		it("skips chart generation for viz-only modifications", async () => {
+			const result = await modifyChart(
+				mockClient,
+				mockQueryEngine,
+				{
+					sql: "SELECT id FROM orders",
+					question: "orders",
+					database: "test-db",
+					vizModifications: { chartType: "bar" },
+				},
+				options,
+			);
+
+			expect(mockClient.post).not.toHaveBeenCalled();
+			expect(result.chart.vegaLiteSpec).toBeUndefined();
+			expect(result.modified.vizChanged).toBe(true);
+		});
+
+		it("substitutes date params without any API call when start/end params exist", async () => {
+			const sql =
+				"SELECT * FROM orders WHERE created_at >= {start_date:Date} AND created_at <= {end_date:Date}";
+
+			const result = await modifyChart(
+				mockClient,
+				mockQueryEngine,
+				{
+					sql,
+					question: "orders",
+					database: "test-db",
+					params: { start_date: "2024-01-01", end_date: "2024-01-31" },
+					sqlModifications: {
+						dateRange: { from: "2024-06-01", to: "2024-06-30" },
+					},
+				},
+				options,
+			);
+
+			expect(result.sql).toBe(sql);
+			expect(result.modified.sqlChanged).toBe(false);
+			expect(result.params).toEqual({
+				start_date: "2024-06-01",
+				end_date: "2024-06-30",
+			});
+			expect(mockClient.post).not.toHaveBeenCalled();
+		});
+
+		it("updates the $n params Postgres binds, not only the named aliases", async () => {
+			const sql = [
+				"SELECT date_trunc('week', u.created_at)::date::text AS week, COUNT(*) AS signed_up_users",
+				"FROM auth.users AS u",
+				"WHERE u.created_at >= $1",
+				"  AND u.aud = $2",
+				"  AND u.created_at < $3",
+				"GROUP BY week",
+			].join("\n");
+
+			const result = await modifyChart(
+				mockClient,
+				mockQueryEngine,
+				{
+					sql,
+					question: "weekly signed up users",
+					database: "test-db",
+					params: {
+						"1": "2026-09-20 00:00:00",
+						"2": "authenticated",
+						"3": "2026-10-20 00:00:00",
+						start_date: "2026-09-20 00:00:00",
+						aud: "authenticated",
+						// Alias drifted from $3 on an earlier apply that missed the placeholder.
+						end_date_exclusive: "2026-10-19 23:59:59",
+					},
+					sqlModifications: {
+						dateRange: { from: "2026-10-13", to: "2026-10-19" },
+					},
+				},
+				options,
+			);
+
+			expect(mockClient.post).not.toHaveBeenCalled();
+			expect(result.params).toEqual({
+				"1": "2026-10-13 00:00:00",
+				"2": "authenticated",
+				"3": "2026-10-19 23:59:59",
+				start_date: "2026-10-13 00:00:00",
+				aud: "authenticated",
+				end_date_exclusive: "2026-10-19 23:59:59",
+			});
+		});
+
+		it("calls /v2/rewrite-datefilter (no /v2/query, no chart) when params are not substitutable", async () => {
+			mockClient.post.mockResolvedValueOnce({
+				success: true,
+				sql: "SELECT * FROM orders WHERE created_at BETWEEN '2024-06-01' AND '2024-06-30'",
+				params: [],
+				dialect: "postgres",
+				queryId: "q-rewrite",
+			});
+
+			const result = await modifyChart(
+				mockClient,
+				mockQueryEngine,
+				{
+					sql: "SELECT * FROM orders WHERE created_at BETWEEN '2024-01-01' AND '2024-01-31'",
+					question: "orders",
+					database: "test-db",
+					params: { tenant: "t1" },
+					sqlModifications: {
+						dateRange: { from: "2024-06-01", to: "2024-06-30" },
+					},
+				},
+				options,
+			);
+
+			expect(mockClient.post).toHaveBeenCalledTimes(1);
+			expect(mockClient.post).toHaveBeenCalledWith(
+				"/v2/rewrite-datefilter",
+				expect.objectContaining({
+					question: "orders",
+					previous_params: [{ name: "tenant", value: "t1" }],
+					date_range: { from: "2024-06-01", to: "2024-06-30" },
+				}),
+				"tenant-1",
+				undefined,
+				undefined,
+				undefined,
+				expect.any(String),
+			);
+			expect(result.queryId).toBe("q-rewrite");
+			expect(result.modified.sqlChanged).toBe(true);
+			expect(result.chart.vegaLiteSpec).toBeUndefined();
+		});
+
+		it("still regenerates the chart when SQL shape changes", async () => {
+			mockClient.post
+				.mockResolvedValueOnce({
+					success: true,
+					sql: "SELECT id FROM orders GROUP BY 1",
+					params: [],
+					dialect: "postgres",
+				})
+				.mockResolvedValueOnce({ chart: { mark: "bar" }, notes: null });
+
+			await modifyChart(
+				mockClient,
+				mockQueryEngine,
+				{
+					sql: "SELECT id FROM orders",
+					question: "orders",
+					database: "test-db",
+					sqlModifications: { timeGranularity: "month" },
+				},
+				options,
+			);
+
+			expect(mockClient.post).toHaveBeenCalledWith(
+				"/v2/query",
+				expect.anything(),
+				"tenant-1",
+				undefined,
+				undefined,
+				undefined,
+				expect.any(String),
+			);
+			expect(mockClient.post).toHaveBeenCalledWith(
+				"/chart",
+				expect.anything(),
+				"tenant-1",
+				undefined,
+				undefined,
+				undefined,
+				expect.any(String),
+			);
 		});
 	});
 });

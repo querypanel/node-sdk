@@ -116,10 +116,6 @@ export type {
 	SqlModifications,
 	VizModifications,
 } from "./routes/modify";
-export {
-	canSubstituteDateRangeParams,
-	isDateRangeOnlySqlModification,
-} from "./routes/modify";
 export type {
 	AskOptions,
 	AskResponse,
