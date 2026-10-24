@@ -77,6 +77,23 @@ describe("QueryPanelSdkAPI", () => {
 			});
 		});
 
+		describe("attachRedshift", () => {
+			it("should attach Redshift with the redshift dialect", async () => {
+				const clientFn = vi.fn().mockResolvedValue({
+					rows: [],
+					fields: [],
+				});
+
+				sdk.attachRedshift("warehouse", clientFn, {
+					database: "mirror",
+				});
+
+				const introspection = await sdk.introspect("warehouse");
+				expect(introspection.db.kind).toBe("redshift");
+				expect(clientFn.mock.calls[0][0]).toContain("FROM svv_tables");
+			});
+		});
+
 		describe("attachClickhouse", () => {
 			it("should attach ClickHouse database", () => {
 				const clientFn = vi.fn();

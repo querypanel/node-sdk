@@ -297,5 +297,94 @@ INNER JOIN d ON c.id = d.c_id`;
 			expect(clientFn).toHaveBeenCalledWith(sql, undefined);
 		});
 	});
-});
 
+	describe("introspect", () => {
+		const createIntrospectClientFn = (): PostgresClientFn =>
+			vi
+				.fn()
+				.mockResolvedValueOnce({
+					rows: [
+						{
+							table_name: "users",
+							schema_name: "public",
+							table_type: "BASE TABLE",
+							comment: "App users",
+						},
+						{
+							table_name: "active_users",
+							schema_name: "public",
+							table_type: "VIEW",
+							comment: null,
+						},
+					],
+					fields: [],
+				})
+				.mockResolvedValueOnce({
+					rows: [
+						{
+							table_name: "users",
+							table_schema: "public",
+							column_name: "id",
+							data_type: "integer",
+							udt_name: null,
+							is_primary_key: false,
+							description: "User id",
+						},
+					],
+					fields: [],
+				});
+
+		it("defaults to the postgres dialect and pg_catalog queries", async () => {
+			const clientFn = createIntrospectClientFn();
+			const adapter = new PostgresAdapter(clientFn);
+
+			await adapter.introspect();
+
+			expect(adapter.getDialect()).toBe("postgres");
+			const [tablesSql] = vi.mocked(clientFn).mock.calls[0];
+			const [columnsSql] = vi.mocked(clientFn).mock.calls[1];
+			expect(tablesSql).toContain("FROM pg_class c");
+			expect(columnsSql).toContain("FROM information_schema.columns cols");
+			// pg_class must be matched on schema too, not just table name
+			expect(columnsSql).toContain("c.relnamespace = n.oid");
+		});
+
+		it("uses svv_* catalog views for redshift", async () => {
+			const clientFn = createIntrospectClientFn();
+			const adapter = new PostgresAdapter(clientFn, {
+				database: "mirror",
+				dialect: "redshift",
+				allowedTables: ["public.users"],
+			});
+
+			const result = await adapter.introspect();
+
+			expect(adapter.getDialect()).toBe("redshift");
+			const [tablesSql] = vi.mocked(clientFn).mock.calls[0];
+			const [columnsSql] = vi.mocked(clientFn).mock.calls[1];
+			expect(tablesSql).toContain("FROM svv_tables");
+			expect(columnsSql).toContain("FROM svv_columns");
+			expect(columnsSql).not.toContain("information_schema.table_constraints");
+			expect(columnsSql).toContain(
+				"(table_schema = 'public' AND table_name = 'users')",
+			);
+
+			expect(result.db).toEqual({ kind: "redshift", name: "mirror" });
+			expect(result.tables.map((t) => [t.name, t.type])).toEqual([
+				["active_users", "view"],
+				["users", "table"],
+			]);
+			expect(result.tables[1]).toMatchObject({
+				comment: "App users",
+				columns: [
+					{
+						name: "id",
+						type: "integer",
+						isPrimaryKey: false,
+						comment: "User id",
+					},
+				],
+			});
+		});
+	});
+});

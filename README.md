@@ -1,6 +1,6 @@
 # QueryPanel Node SDK
 
-`@querypanel/node-sdk` is the headless, server-side SDK for [QueryPanel](https://querypanel.io) embedded analytics. Use it in your Node.js (18+), Bun, or Deno backend to mint RS256 tenant JWTs, sync your Postgres, ClickHouse, or BigQuery schema, and turn natural-language questions into SQL (natural-language-to-SQL / text-to-SQL) for multi-tenant SaaS products. The generated SQL runs against your database through a client function you provide, so database credentials and query results stay on your servers. For chart generation the SDK sends column names and value types, not row values (see `anonymizeResults`).
+`@querypanel/node-sdk` is the headless, server-side SDK for [QueryPanel](https://querypanel.io) embedded analytics. Use it in your Node.js (18+), Bun, or Deno backend to mint RS256 tenant JWTs, sync your Postgres, Amazon Redshift, ClickHouse, or BigQuery schema, and turn natural-language questions into SQL (natural-language-to-SQL / text-to-SQL) for multi-tenant SaaS products. The generated SQL runs against your database through a client function you provide, so database credentials and query results stay on your servers. For chart generation the SDK sends column names and value types, not row values (see `anonymizeResults`).
 
 - Docs: [querypanel.io/docs/node-sdk](https://querypanel.io/docs/node-sdk)
 - Tenant isolation: [querypanel.io/docs/tenant-isolation](https://querypanel.io/docs/tenant-isolation)
@@ -71,6 +71,13 @@ qp.attachPostgres(
     allowedTables: ["orders"], // Only sync 'orders' table - 'users' will be excluded
   },
 );
+
+// Amazon Redshift speaks the Postgres wire protocol, so a pg-based client works.
+// attachRedshift introspects via Redshift's svv_* views and generates Redshift SQL.
+qp.attachRedshift("warehouse", createPostgresClient(), {
+  database: "dev",
+  tenantFieldName: "tenant_id",
+});
 
 const clickhouse = createClient({ url: process.env.CLICKHOUSE_URL });
 

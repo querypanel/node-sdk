@@ -16,13 +16,20 @@ export type PostgresClientFn = (
 	params?: unknown[],
 ) => Promise<PostgresQueryResult>;
 
+export type PostgresWireDialect = "postgres" | "redshift";
+
 export interface PostgresAdapterOptions {
 	/** Logical database name used in introspection metadata. */
 	database?: string;
 	/** Schema to assume when a table is provided without qualification. */
 	defaultSchema?: string;
-	/** Optional database kind label. Defaults to "postgres". */
+	/** Optional database kind label. Defaults to the dialect. */
 	kind?: SchemaIntrospection["db"]["kind"];
+	/**
+	 * Wire-compatible engine behind the client. "redshift" uses Redshift's
+	 * svv_* catalog views for introspection. Defaults to "postgres".
+	 */
+	dialect?: PostgresWireDialect;
 	/**
 	 * Optional allow-list of table names (schema-qualified or bare).
 	 * When specified, introspection and queries are restricted to these tables only.
@@ -109,6 +116,7 @@ export class PostgresAdapter implements DatabaseAdapter {
 	private readonly databaseName: string;
 	private readonly defaultSchema: string;
 	private readonly kind: SchemaIntrospection["db"]["kind"];
+	private readonly dialect: PostgresWireDialect;
 	private readonly allowedTables?: NormalizedTable[];
 
 	constructor(
@@ -117,7 +125,8 @@ export class PostgresAdapter implements DatabaseAdapter {
 	) {
 		this.databaseName = options.database ?? "postgres";
 		this.defaultSchema = options.defaultSchema ?? "public";
-		this.kind = options.kind ?? "postgres";
+		this.dialect = options.dialect ?? "postgres";
+		this.kind = options.kind ?? this.dialect;
 		if (options.allowedTables) {
 			this.allowedTables = normalizeTableFilter(
 				options.allowedTables,
@@ -241,8 +250,8 @@ export class PostgresAdapter implements DatabaseAdapter {
 		await this.clientFn(`EXPLAIN ${sql}`, paramArray);
 	}
 
-	getDialect() {
-		return "postgres" as const;
+	getDialect(): PostgresWireDialect {
+		return this.dialect;
 	}
 
 	/**
@@ -256,13 +265,18 @@ export class PostgresAdapter implements DatabaseAdapter {
 			: this.allowedTables;
 		const normalizedTables = tablesToIntrospect ?? [];
 
+		const isRedshift = this.dialect === "redshift";
 		const tablesResult = await this.clientFn(
-			buildTablesQuery(normalizedTables),
+			isRedshift
+				? buildRedshiftTablesQuery(normalizedTables)
+				: buildTablesQuery(normalizedTables),
 		);
 		const tableRows = tablesResult.rows as TableRow[];
 
 		const columnsResult = await this.clientFn(
-			buildColumnsQuery(normalizedTables),
+			isRedshift
+				? buildRedshiftColumnsQuery(normalizedTables)
+				: buildColumnsQuery(normalizedTables),
 		);
 		const columnRows = columnsResult.rows as ColumnRow[];
 
@@ -397,10 +411,11 @@ function buildColumnsQuery(tables: NormalizedTable[]): string {
         AND kcu.column_name = cols.column_name
     ) AS is_primary_key
   FROM information_schema.columns cols
+  LEFT JOIN pg_catalog.pg_namespace n ON n.nspname = cols.table_schema
   LEFT JOIN pg_catalog.pg_class c
     ON c.relname = cols.table_name
+   AND c.relnamespace = n.oid
    AND c.relkind IN ('r', 'v', 'm')
-  LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
   LEFT JOIN pg_catalog.pg_attribute attr
     ON attr.attrelid = c.oid
    AND attr.attname = cols.column_name
@@ -409,6 +424,45 @@ function buildColumnsQuery(tables: NormalizedTable[]): string {
   WHERE cols.table_schema NOT IN ('pg_catalog', 'information_schema')
     ${filter}
   ORDER BY cols.table_schema, cols.table_name, cols.ordinal_position;`;
+}
+
+// Redshift's information_schema constraint views are very slow on large
+// clusters, so read the svv_* catalog views instead. Primary keys are
+// informational-only in Redshift and are not reported.
+const REDSHIFT_EXCLUDED_SCHEMAS =
+	"('pg_catalog', 'information_schema', 'pg_internal', 'pg_automv')";
+
+function buildRedshiftTablesQuery(tables: NormalizedTable[]): string {
+	const filter = buildFilterClause(tables, "table_schema", "table_name");
+	return `SELECT
+    table_name,
+    table_schema AS schema_name,
+    table_type,
+    remarks AS comment
+  FROM svv_tables
+  WHERE table_catalog = current_database()
+    AND table_schema NOT IN ${REDSHIFT_EXCLUDED_SCHEMAS}
+    AND table_schema NOT LIKE 'pg_temp%'
+    ${filter}
+  ORDER BY table_schema, table_name;`;
+}
+
+function buildRedshiftColumnsQuery(tables: NormalizedTable[]): string {
+	const filter = buildFilterClause(tables, "table_schema", "table_name");
+	return `SELECT
+    table_name,
+    table_schema,
+    column_name,
+    data_type,
+    NULL AS udt_name,
+    remarks AS description,
+    FALSE AS is_primary_key
+  FROM svv_columns
+  WHERE table_catalog = current_database()
+    AND table_schema NOT IN ${REDSHIFT_EXCLUDED_SCHEMAS}
+    AND table_schema NOT LIKE 'pg_temp%'
+    ${filter}
+  ORDER BY table_schema, table_name, ordinal_position;`;
 }
 
 function buildFilterClause(

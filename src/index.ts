@@ -14,6 +14,7 @@ import {
 	PostgresAdapter,
 	type PostgresAdapterOptions,
 	type PostgresClientFn,
+	type PostgresWireDialect,
 } from "./adapters/postgres";
 import type { DatabaseAdapter, DatabaseDialect } from "./adapters/types";
 import type { IQueryPanelApi, RequestHandler } from "./core/api-types";
@@ -55,6 +56,7 @@ export type {
 	DatabaseDialect,
 	PostgresAdapterOptions,
 	PostgresClientFn,
+	PostgresWireDialect,
 	SchemaIntrospection,
 };
 
@@ -321,7 +323,7 @@ export class QueryPanelSdkAPI {
 
 		const metadata: DatabaseMetadata = {
 			name,
-			dialect: "postgres",
+			dialect: adapter.getDialect(),
 			description: options?.description,
 			tags: options?.tags,
 			tenantFieldName: options?.tenantFieldName,
@@ -333,6 +335,25 @@ export class QueryPanelSdkAPI {
 		};
 
 		this.queryEngine.attachDatabase(name, adapter, metadata);
+	}
+
+	/**
+	 * Attach an Amazon Redshift database. Redshift speaks the Postgres wire
+	 * protocol, so `clientFn` can wrap a `pg` client; introspection uses
+	 * Redshift's svv_* catalog views and SQL is generated for Redshift.
+	 */
+	attachRedshift(
+		name: string,
+		clientFn: PostgresClientFn,
+		options?: Omit<PostgresAdapterOptions, "dialect"> & {
+			description?: string;
+			tags?: string[];
+			tenantFieldName?: string;
+			tenantFieldType?: string;
+			enforceTenantIsolation?: boolean;
+		},
+	): void {
+		this.attachPostgres(name, clientFn, { ...options, dialect: "redshift" });
 	}
 
 	attachBigQuery(

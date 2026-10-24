@@ -3,7 +3,12 @@ import type {
   SchemaIntrospection,
 } from "../schema/types";
 
-export type DatabaseDialect = "bigquery" | "clickhouse" | "postgres" | "mysql";
+export type DatabaseDialect =
+	| "bigquery"
+	| "clickhouse"
+	| "postgres"
+	| "redshift"
+	| "mysql";
 
 export interface DatabaseExecutionResult {
   fields: string[];
