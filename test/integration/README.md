@@ -17,9 +17,16 @@ bun run docker:test:up
 
 This starts:
 - PostgreSQL 17 on port `5433`
+- Redshift emulation (PostgreSQL 17) on port `5434`
 - ClickHouse 24 on port `8124`
 
-Both databases are initialized with test schemas and data from `test/fixtures/`.
+All databases are initialized with test schemas and data from `test/fixtures/`.
+
+There is no Redshift Docker image. `redshift-init.sql` recreates the parts the SDK
+depends on (`svv_tables` / `svv_columns` and `GETDATE()` / `DATEADD('day', …)`) on plain
+Postgres, so `redshift.test.ts` covers the SDK's Redshift code path but not real
+Redshift performance or SQL semantics. Smoke-test against a real cluster (e.g. Redshift
+Serverless) before relying on new Redshift behavior.
 
 ### 2. Run Integration Tests
 
