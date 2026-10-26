@@ -16,7 +16,14 @@ import {
 	type PostgresClientFn,
 	type PostgresWireDialect,
 } from "./adapters/postgres";
-import type { DatabaseAdapter, DatabaseDialect } from "./adapters/types";
+import type {
+	CatalogSchema,
+	CatalogTable,
+	CatalogTableType,
+	DatabaseAdapter,
+	DatabaseDialect,
+	ListTablesOptions,
+} from "./adapters/types";
 import type { IQueryPanelApi, RequestHandler } from "./core/api-types";
 import { ApiClient } from "./core/client";
 import { CallbackApiClient } from "./core/callback-client";
@@ -25,7 +32,11 @@ import {
 	type ParamRecord,
 	QueryEngine,
 } from "./core/query-engine";
-import { QueryErrorCode, QueryPipelineError } from "./errors";
+import {
+	QueryErrorCode,
+	QueryPipelineError,
+	SchemaTooLargeError,
+} from "./errors";
 import * as activeChartsRoute from "./routes/active-charts";
 import * as chartsRoute from "./routes/charts";
 import * as dashboardsRoute from "./routes/dashboards";
@@ -43,17 +54,21 @@ export { BigQueryAdapter, ClickHouseAdapter, PostgresAdapter };
 
 // Re-export error types
 export type { QueryErrorCode as QueryErrorCodeType } from "./errors";
-export { QueryErrorCode, QueryPipelineError };
+export { QueryErrorCode, QueryPipelineError, SchemaTooLargeError };
 
 export type {
 	BigQueryAdapterOptions,
 	BigQueryClientFn,
 	BigQueryQueryRequest,
 	BigQueryQueryResult,
+	CatalogSchema,
+	CatalogTable,
+	CatalogTableType,
 	ClickHouseAdapterOptions,
 	ClickHouseClientFn,
 	DatabaseAdapter,
 	DatabaseDialect,
+	ListTablesOptions,
 	PostgresAdapterOptions,
 	PostgresClientFn,
 	PostgresWireDialect,
@@ -106,7 +121,13 @@ export type {
 // Re-export route types
 export type {
 	IngestResponse,
+	SchemaIngestBatchEmbedResponse,
+	SchemaIngestRequestOptions,
 	SchemaSyncOptions,
+	SchemaSyncProgressEvent,
+	StageSchemaIngestOptions,
+	StageSchemaIngestResult,
+	SyncSchemaInBatchesOptions,
 } from "./routes/ingest";
 export type {
 	AxisFieldInput,
@@ -404,6 +425,38 @@ export class QueryPanelSdkAPI {
 	}
 
 	/**
+	 * Lists schemas (ClickHouse: the database, BigQuery: the dataset) with table
+	 * counts. Cheap catalog read for building an allowed-tables picker; not
+	 * restricted by `allowedTables`.
+	 */
+	async listSchemas(databaseName: string): Promise<CatalogSchema[]> {
+		const adapter = this.queryEngine.getDatabase(databaseName);
+		if (!adapter.listSchemas) {
+			throw new Error(
+				`Database "${databaseName}" (${adapter.getDialect()}) does not support listSchemas`,
+			);
+		}
+		return await adapter.listSchemas();
+	}
+
+	/**
+	 * Lists tables/views (no columns) filtered by schema and a case-insensitive
+	 * name substring. Default limit 500, max 5000. Not restricted by `allowedTables`.
+	 */
+	async listTables(
+		databaseName: string,
+		options?: ListTablesOptions,
+	): Promise<CatalogTable[]> {
+		const adapter = this.queryEngine.getDatabase(databaseName);
+		if (!adapter.listTables) {
+			throw new Error(
+				`Database "${databaseName}" (${adapter.getDialect()}) does not support listTables`,
+			);
+		}
+		return await adapter.listTables(options);
+	}
+
+	/**
 	 * Syncs the database schema to QueryPanel for natural language query generation.
 	 *
 	 * This method introspects your database schema and uploads it to QueryPanel's
@@ -433,6 +486,83 @@ export class QueryPanelSdkAPI {
 		signal?: AbortSignal,
 	): Promise<ingestRoute.IngestResponse> {
 		return await ingestRoute.syncSchema(
+			this.client,
+			this.queryEngine,
+			databaseName,
+			options,
+			signal,
+		);
+	}
+
+	/**
+	 * Introspects the schema, uploads it in batches to a new ingest session and
+	 * commits it. Returns `status: "skipped"` (with `skippedResult`) when the schema
+	 * is unchanged, otherwise `status: "embedding"`: call embedSchemaIngestBatch for
+	 * every index in [0, totalBatches) and then finalizeSchemaIngest.
+	 * Throws SchemaTooLargeError before uploading if `maxColumns` is exceeded.
+	 */
+	async stageSchemaIngest(
+		databaseName: string,
+		options: ingestRoute.StageSchemaIngestOptions,
+		signal?: AbortSignal,
+	): Promise<ingestRoute.StageSchemaIngestResult> {
+		return await ingestRoute.stageSchemaIngest(
+			this.client,
+			this.queryEngine,
+			databaseName,
+			options,
+			signal,
+		);
+	}
+
+	/** Embeds one batch of a staged ingest session. */
+	async embedSchemaIngestBatch(
+		sessionId: string,
+		index: number,
+		options: ingestRoute.SchemaIngestRequestOptions,
+		signal?: AbortSignal,
+	): Promise<ingestRoute.SchemaIngestBatchEmbedResponse> {
+		return await ingestRoute.embedSchemaIngestBatch(
+			this.client,
+			sessionId,
+			index,
+			options,
+			signal,
+		);
+	}
+
+	/** Finalizes a staged ingest session after all batches are embedded. */
+	async finalizeSchemaIngest(
+		sessionId: string,
+		options: ingestRoute.SchemaIngestRequestOptions,
+		signal?: AbortSignal,
+	): Promise<ingestRoute.IngestResponse> {
+		return await ingestRoute.finalizeSchemaIngest(
+			this.client,
+			sessionId,
+			options,
+			signal,
+		);
+	}
+
+	/**
+	 * Batched alternative to syncSchema for large databases: stage, embed every
+	 * batch, and finalize in-process, reporting progress via `onProgress`.
+	 *
+	 * @example
+	 * ```typescript
+	 * await qp.syncSchemaInBatches("warehouse", {
+	 *   tenantId: "tenant_123",
+	 *   onProgress: (e) => console.log(e.phase, e),
+	 * });
+	 * ```
+	 */
+	async syncSchemaInBatches(
+		databaseName: string,
+		options: ingestRoute.SyncSchemaInBatchesOptions,
+		signal?: AbortSignal,
+	): Promise<ingestRoute.IngestResponse> {
+		return await ingestRoute.syncSchemaInBatches(
 			this.client,
 			this.queryEngine,
 			databaseName,

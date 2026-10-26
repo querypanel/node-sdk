@@ -4,7 +4,14 @@ import type {
 	SchemaIntrospection,
 	TableSchema,
 } from "../schema/types";
-import type { DatabaseAdapter, DatabaseExecutionResult } from "./types";
+import {
+	type CatalogSchema,
+	type CatalogTable,
+	type DatabaseAdapter,
+	type DatabaseExecutionResult,
+	type ListTablesOptions,
+	resolveCatalogLimit,
+} from "./types";
 
 export interface PostgresQueryResult {
 	rows: Array<Record<string, unknown>>;
@@ -32,7 +39,9 @@ export interface PostgresAdapterOptions {
 	dialect?: PostgresWireDialect;
 	/**
 	 * Optional allow-list of table names (schema-qualified or bare).
-	 * When specified, introspection and queries are restricted to these tables only.
+	 * Use `schema.*` to allow every table in a schema (a bare `*` means the
+	 * default schema). When specified, introspection and queries are restricted
+	 * to these tables only.
 	 */
 	allowedTables?: string[];
 }
@@ -54,10 +63,13 @@ type ColumnRow = {
 	description: string | null;
 };
 
-interface NormalizedTable {
+/** `table` is `"*"` when every table in `schema` is allowed. */
+export interface NormalizedTable {
 	schema: string;
 	table: string;
 }
+
+const WILDCARD = "*";
 
 /** Highest $N index referenced in SQL (0 when the query uses literal values only). */
 export function maxPostgresPlaceholderIndex(sql: string): number {
@@ -165,6 +177,11 @@ export class PostgresAdapter implements DatabaseAdapter {
 		const allowedSet = new Set(
 			this.allowedTables.map((t) => tableKey(t.schema, t.table)),
 		);
+		const allowedSchemas = new Set(
+			this.allowedTables
+				.filter((t) => t.table === WILDCARD)
+				.map((t) => t.schema),
+		);
 
 		// First, neutralize function calls that use FROM keyword (EXTRACT, SUBSTRING, TRIM, etc.)
 		// Replace their FROM with a placeholder to avoid false positives
@@ -184,7 +201,7 @@ export class PostgresAdapter implements DatabaseAdapter {
 			const table = match[2]?.replace(/['"]/g, "");
 			if (table) {
 				const key = tableKey(schema, table);
-				if (!allowedSet.has(key)) {
+				if (!allowedSet.has(key) && !allowedSchemas.has(schema)) {
 					throw new Error(
 						`Query references table "${schema}.${table}" which is not in the allowed tables list`,
 					);
@@ -252,6 +269,37 @@ export class PostgresAdapter implements DatabaseAdapter {
 
 	getDialect(): PostgresWireDialect {
 		return this.dialect;
+	}
+
+	/**
+	 * List schemas with their table/view counts. Reads the full catalog (not
+	 * restricted by `allowedTables`) so it can back an allowed-tables picker.
+	 */
+	async listSchemas(): Promise<CatalogSchema[]> {
+		const result = await this.clientFn(
+			this.dialect === "redshift"
+				? buildRedshiftListSchemasQuery()
+				: buildListSchemasQuery(),
+		);
+		return result.rows.map((row) => ({
+			schema: String(row.schema),
+			tableCount: Number(row.table_count ?? 0),
+		}));
+	}
+
+	/**
+	 * List tables/views, optionally filtered by schema and a case-insensitive
+	 * substring of the table name. Reads the full catalog (not restricted by
+	 * `allowedTables`). Default limit 500, max 5000.
+	 */
+	async listTables(options: ListTablesOptions = {}): Promise<CatalogTable[]> {
+		const { sql, params } = buildListTablesQuery(this.dialect, options);
+		const result = await this.clientFn(sql, params);
+		return result.rows.map((row) => ({
+			schema: String(row.schema),
+			name: String(row.name),
+			type: asTableType(String(row.table_type ?? "")),
+		}));
 	}
 
 	/**
@@ -354,7 +402,10 @@ function normalizeTableFilter(
 		const parts = trimmed.split(".");
 		const table = parts.pop() ?? "";
 		const schema = parts.pop() ?? defaultSchema;
-		if (!isSafeIdentifier(schema) || !isSafeIdentifier(table)) {
+		if (
+			!isSafeIdentifier(schema) ||
+			(table !== WILDCARD && !isSafeIdentifier(table))
+		) {
 			continue;
 		}
 		const key = tableKey(schema, table);
@@ -465,16 +516,106 @@ function buildRedshiftColumnsQuery(tables: NormalizedTable[]): string {
   ORDER BY table_schema, table_name, ordinal_position;`;
 }
 
-function buildFilterClause(
+/**
+ * WHERE fragment restricting introspection to the normalized allow-list.
+ * Identifiers are validated by normalizeTableFilter (isSafeIdentifier), so
+ * interpolating them is safe. `schema.*` entries match the whole schema.
+ */
+export function buildFilterClause(
 	tables: NormalizedTable[],
 	schemaExpr: string,
 	tableExpr: string,
 ): string {
 	if (!tables.length) return "";
-	const clauses = tables.map(({ schema, table }) => {
-		return `(${schemaExpr} = '${schema}' AND ${tableExpr} = '${table}')`;
-	});
+	const wildcardSchemas = new Set(
+		tables.filter((t) => t.table === WILDCARD).map((t) => t.schema),
+	);
+	const clauses: string[] = [];
+	for (const schema of wildcardSchemas) {
+		clauses.push(`(${schemaExpr} = '${schema}')`);
+	}
+	for (const { schema, table } of tables) {
+		if (table === WILDCARD || wildcardSchemas.has(schema)) continue;
+		clauses.push(`(${schemaExpr} = '${schema}' AND ${tableExpr} = '${table}')`);
+	}
 	return `AND (${clauses.join(" OR ")})`;
+}
+
+function buildListSchemasQuery(): string {
+	return `SELECT n.nspname AS schema, COUNT(*) AS table_count
+  FROM pg_class c
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE c.relkind IN ('r', 'v', 'm')
+    AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+    AND n.nspname NOT LIKE 'pg_temp%'
+    AND n.nspname NOT LIKE 'pg_toast_temp%'
+  GROUP BY n.nspname
+  ORDER BY n.nspname;`;
+}
+
+function buildRedshiftListSchemasQuery(): string {
+	return `SELECT table_schema AS schema, COUNT(*) AS table_count
+  FROM svv_tables
+  WHERE table_catalog = current_database()
+    AND table_schema NOT IN ${REDSHIFT_EXCLUDED_SCHEMAS}
+    AND table_schema NOT LIKE 'pg_temp%'
+  GROUP BY table_schema
+  ORDER BY table_schema;`;
+}
+
+/** Escape LIKE/ILIKE metacharacters so search is a literal substring match. */
+export function toLikeSubstringPattern(search: string): string {
+	return `%${search.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+}
+
+export function buildListTablesQuery(
+	dialect: PostgresWireDialect,
+	options: ListTablesOptions,
+): { sql: string; params: unknown[] } {
+	const isRedshift = dialect === "redshift";
+	const schemaExpr = isRedshift ? "table_schema" : "n.nspname";
+	const tableExpr = isRedshift ? "table_name" : "c.relname";
+	const params: unknown[] = [];
+	const filters: string[] = [];
+	if (options.schema) {
+		params.push(options.schema);
+		filters.push(`AND ${schemaExpr} = $${params.length}`);
+	}
+	const search = options.search?.trim();
+	if (search) {
+		params.push(toLikeSubstringPattern(search));
+		filters.push(`AND ${tableExpr} ILIKE $${params.length}`);
+	}
+	// Integer produced by resolveCatalogLimit, never raw input.
+	const limit = resolveCatalogLimit(options.limit);
+	const filterSql = filters.join("\n    ");
+
+	const sql = isRedshift
+		? `SELECT table_schema AS schema, table_name AS name, table_type
+  FROM svv_tables
+  WHERE table_catalog = current_database()
+    AND table_schema NOT IN ${REDSHIFT_EXCLUDED_SCHEMAS}
+    AND table_schema NOT LIKE 'pg_temp%'
+    ${filterSql}
+  ORDER BY table_schema, table_name
+  LIMIT ${limit};`
+		: `SELECT n.nspname AS schema, c.relname AS name,
+    CASE c.relkind
+      WHEN 'v' THEN 'view'
+      WHEN 'm' THEN 'materialized_view'
+      ELSE 'table'
+    END AS table_type
+  FROM pg_class c
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE c.relkind IN ('r', 'v', 'm')
+    AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+    AND n.nspname NOT LIKE 'pg_temp%'
+    AND n.nspname NOT LIKE 'pg_toast_temp%'
+    ${filterSql}
+  ORDER BY n.nspname, c.relname
+  LIMIT ${limit};`;
+
+	return { sql, params };
 }
 
 function tableKey(schema: string, table: string): string {
@@ -485,7 +626,7 @@ function isSafeIdentifier(value: string): boolean {
 	return /^[A-Za-z_][A-Za-z0-9_]*$/.test(value);
 }
 
-function asTableType(value: string): TableSchema["type"] {
+function asTableType(value: string): CatalogTable["type"] {
 	const normalized = value.toLowerCase();
 	if (normalized.includes("view")) {
 		return normalized.includes("materialized") ? "materialized_view" : "view";

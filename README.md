@@ -126,6 +126,30 @@ await qp.syncSchema("analytics", {
 
 Optionally limit the payload with `tables: ["orders"]`.
 
+#### Large databases
+
+`allowedTables` (and `tables`) accept `schema.*` to include every table in a schema on Postgres/Redshift, e.g. `["crm.*", "public.orders"]`. On ClickHouse and BigQuery the adapter is bound to one database/dataset, so `*` or `<database>.*` means "all tables".
+
+Browse the catalog cheaply (no columns; not restricted by `allowedTables`) to build a table picker:
+
+```ts
+await qp.listSchemas("warehouse"); // [{ schema: "crm", tableCount: 12 }, ...]
+await qp.listTables("warehouse", { schema: "crm", search: "user", limit: 100 });
+// [{ schema: "crm", name: "users", type: "table" }, ...]  (default limit 500, max 5000)
+```
+
+For schemas too large for a single request, `syncSchemaInBatches` uploads tables in batches (≤ `maxBatchDocs` docs, default 1000, and ≤ `maxBatchBytes`, default 2 MB) and embeds them batch by batch:
+
+```ts
+await qp.syncSchemaInBatches("warehouse", {
+  tenantId: "tenant_123",
+  maxColumns: 50_000, // throw SchemaTooLargeError before uploading if exceeded
+  onProgress: (e) => console.log(e.phase, e),
+});
+```
+
+To spread the work across requests (e.g. serverless time limits), call `stageSchemaIngest` (introspect + upload + commit), then `embedSchemaIngestBatch(sessionId, i, ...)` for each batch, then `finalizeSchemaIngest(sessionId, ...)`.
+
 ### Custom system prompt (`systemPrompt`)
 
 Pass `systemPrompt` on `ask()` to inject extra instructions for SQL generation. Use it when a **client** needs policies QueryPanel does not know about — retention windows, a max date range, excluded event types, and similar product rules. Look up that client’s config in your backend and pass it on every question.

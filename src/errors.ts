@@ -145,3 +145,21 @@ export class QueryPipelineError extends Error {
 		return isAiProviderErrorCode(this.code);
 	}
 }
+
+/**
+ * Thrown by stageSchemaIngest / syncSchemaInBatches when the introspected schema
+ * has more columns than `maxColumns`. Raised before anything is uploaded; narrow
+ * the sync with `allowedTables` / `tables` (e.g. `schema.*`) and retry.
+ */
+export class SchemaTooLargeError extends Error {
+	constructor(
+		public readonly tableCount: number,
+		public readonly columnCount: number,
+		public readonly maxColumns: number,
+	) {
+		super(
+			`Schema too large to sync: ${columnCount} columns across ${tableCount} tables exceeds the limit of ${maxColumns} columns. Restrict the tables to sync (e.g. allowedTables with "schema.*" or specific tables).`,
+		);
+		this.name = "SchemaTooLargeError";
+	}
+}

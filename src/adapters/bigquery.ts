@@ -4,7 +4,14 @@ import type {
 	SchemaIntrospection,
 	TableSchema,
 } from "../schema/types";
-import type { DatabaseAdapter, DatabaseExecutionResult } from "./types";
+import {
+	type CatalogSchema,
+	type CatalogTable,
+	type DatabaseAdapter,
+	type DatabaseExecutionResult,
+	type ListTablesOptions,
+	resolveCatalogLimit,
+} from "./types";
 
 /**
  * Request passed to BigQueryClientFn.
@@ -45,6 +52,7 @@ export interface BigQueryAdapterOptions {
 	kind?: SchemaIntrospection["db"]["kind"];
 	/**
 	 * Optional allow-list of table names (dataset.table or bare table name).
+	 * `*` or `<dataset>.*` allows every table in the dataset (same as no filter).
 	 * When specified, introspection and queries are restricted to these tables only.
 	 */
 	allowedTables?: string[];
@@ -208,6 +216,57 @@ export class BigQueryAdapter implements DatabaseAdapter {
 		};
 	}
 
+	/** The adapter is bound to one dataset, so this returns a single row. */
+	async listSchemas(): Promise<CatalogSchema[]> {
+		const result = await this.clientFn({
+			query: `SELECT COUNT(*) AS table_count
+  FROM ${this.informationSchema("TABLES")}`,
+			dryRun: false,
+		});
+		return [
+			{
+				schema: this.defaultDataset,
+				tableCount: Number(result.rows[0]?.table_count ?? 0),
+			},
+		];
+	}
+
+	/**
+	 * List tables in the bound dataset. Reads the full catalog (not restricted
+	 * by `allowedTables`). Default limit 500, max 5000.
+	 */
+	async listTables(options: ListTablesOptions = {}): Promise<CatalogTable[]> {
+		if (options.schema && options.schema !== this.defaultDataset) {
+			return [];
+		}
+		const search = options.search?.trim();
+		const params: Record<string, string> = {};
+		let searchClause = "";
+		if (search) {
+			params.search = `%${search.toLowerCase().replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+			searchClause = "\n  WHERE LOWER(table_name) LIKE @search";
+		}
+		// Integer produced by resolveCatalogLimit, never raw input.
+		const limit = resolveCatalogLimit(options.limit);
+		const result = await this.clientFn({
+			query: `SELECT table_schema, table_name, table_type
+  FROM ${this.informationSchema("TABLES")}${searchClause}
+  ORDER BY table_name
+  LIMIT ${limit}`,
+			...(search ? { params } : {}),
+			dryRun: false,
+		});
+		return (result.rows as unknown as TableRow[]).map((row) => ({
+			schema: row.table_schema,
+			name: row.table_name,
+			type: asTableType(row.table_type),
+		}));
+	}
+
+	private informationSchema(view: "TABLES"): string {
+		return `\`${this.datasetProjectId}.${this.defaultDataset}.INFORMATION_SCHEMA.${view}\``;
+	}
+
 	private validateQueryTables(sql: string): void {
 		if (!this.allowedTables || this.allowedTables.length === 0) {
 			return;
@@ -248,8 +307,11 @@ function normalizeTableFilter(
 	for (const raw of tables) {
 		if (!raw?.trim()) continue;
 		const trimmed = raw.trim();
+		// `*` / `<dataset>.*` = whole dataset = no filter.
+		if (trimmed === "*" || trimmed === `${defaultDataset}.*`) return [];
 		const parts = trimmed.split(".");
 		const table = parts.pop() ?? "";
+		if (table === "*") continue;
 		const dataset = parts.pop() ?? defaultDataset;
 		const key = tableKey(dataset, table);
 		if (seen.has(key)) continue;
@@ -300,7 +362,7 @@ function escapeSql(value: string): string {
 	return value.replace(/\\/g, "\\\\").replace(/'/g, "''");
 }
 
-function asTableType(tableType: string): TableSchema["type"] {
+function asTableType(tableType: string): CatalogTable["type"] {
 	const normalized = tableType?.toLowerCase() ?? "";
 	if (normalized.includes("view")) {
 		return normalized.includes("materialized") ? "materialized_view" : "view";

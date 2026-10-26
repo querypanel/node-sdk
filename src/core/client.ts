@@ -240,8 +240,7 @@ export class ApiClient {
 		}
 
 		if (!response.ok) {
-			const message =
-				json?.error || response.statusText || "Request failed";
+			const message = errorMessageFromBody(json, response);
 			if (isQueryErrorCode(json?.code)) {
 				throw new QueryPipelineError(
 					message,
@@ -409,4 +408,20 @@ export class ApiClient {
 
 		return `${data}.${encodedSignature}`;
 	}
+}
+
+/**
+ * QueryPanel API errors are `{ error: string }`; platform errors (e.g. Vercel's 413 for
+ * oversized bodies) are `{ error: { code, message } }`. Never let an object become the message.
+ */
+function errorMessageFromBody(json: any, response: Response): string {
+	const error = json?.error;
+	if (typeof error === "string" && error) return error;
+	if (error && typeof error === "object") {
+		const nested = error.message ?? error.code;
+		if (typeof nested === "string" && nested) {
+			return `${nested} (HTTP ${response.status})`;
+		}
+	}
+	return response.statusText || `Request failed (HTTP ${response.status})`;
 }

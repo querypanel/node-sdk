@@ -10,6 +10,41 @@ export type DatabaseDialect =
 	| "redshift"
 	| "mysql";
 
+/** A schema (or ClickHouse database / BigQuery dataset) in the catalog. */
+export interface CatalogSchema {
+  schema: string;
+  tableCount: number;
+}
+
+export type CatalogTableType = "table" | "view" | "materialized_view";
+
+/** A table or view in the catalog (no columns; cheap to list). */
+export interface CatalogTable {
+  schema: string;
+  name: string;
+  type: CatalogTableType;
+}
+
+export interface ListTablesOptions {
+  /** Only list tables in this schema. */
+  schema?: string;
+  /** Case-insensitive substring match on the table name. */
+  search?: string;
+  /** Max rows to return. Default 500, capped at 5000. */
+  limit?: number;
+}
+
+export const DEFAULT_CATALOG_LIMIT = 500;
+export const MAX_CATALOG_LIMIT = 5000;
+
+/** Clamp a caller-provided limit to a safe positive integer. */
+export function resolveCatalogLimit(limit?: number): number {
+  if (limit === undefined || !Number.isFinite(limit)) {
+    return DEFAULT_CATALOG_LIMIT;
+  }
+  return Math.min(Math.max(Math.floor(limit), 1), MAX_CATALOG_LIMIT);
+}
+
 export interface DatabaseExecutionResult {
   fields: string[];
   rows: Array<Record<string, unknown>>;
@@ -50,6 +85,16 @@ export interface DatabaseAdapter {
    * Get the database dialect/type
    */
   getDialect(): DatabaseDialect;
+
+  /**
+   * Optional: List schemas with table counts (cheap catalog read for pickers).
+   */
+  listSchemas?(): Promise<CatalogSchema[]>;
+
+  /**
+   * Optional: List tables/views without columns (cheap catalog read for pickers).
+   */
+  listTables?(options?: ListTablesOptions): Promise<CatalogTable[]>;
 
   /**
    * Optional: Close/cleanup database connection

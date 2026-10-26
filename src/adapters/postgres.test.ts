@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+	buildFilterClause,
+	buildListTablesQuery,
 	filterParamsForPostgresSql,
 	maxPostgresPlaceholderIndex,
 	PostgresAdapter,
@@ -385,6 +387,176 @@ INNER JOIN d ON c.id = d.c_id`;
 					},
 				],
 			});
+		});
+	});
+
+	describe("schema wildcard allowedTables", () => {
+		it("buildFilterClause emits a schema-only clause for schema.*", () => {
+			expect(
+				buildFilterClause(
+					[
+						{ schema: "crm", table: "*" },
+						{ schema: "public", table: "users" },
+						// Redundant: covered by crm.*
+						{ schema: "crm", table: "contacts" },
+					],
+					"n.nspname",
+					"c.relname",
+				),
+			).toBe(
+				"AND ((n.nspname = 'crm') OR (n.nspname = 'public' AND c.relname = 'users'))",
+			);
+			expect(buildFilterClause([], "s", "t")).toBe("");
+		});
+
+		it("introspection SQL honors schema.* for postgres and redshift", async () => {
+			for (const dialect of ["postgres", "redshift"] as const) {
+				const clientFn = vi
+					.fn()
+					.mockResolvedValue({ rows: [], fields: [] }) as PostgresClientFn;
+				const adapter = new PostgresAdapter(clientFn, {
+					dialect,
+					allowedTables: ["crm.*", "public.users", "bad-schema.*"],
+				});
+				await adapter.introspect();
+				const [tablesSql] = vi.mocked(clientFn).mock.calls[0];
+				const [columnsSql] = vi.mocked(clientFn).mock.calls[1];
+				const schemaExpr = dialect === "redshift" ? "table_schema" : "n.nspname";
+				expect(tablesSql).toContain(`(${schemaExpr} = 'crm')`);
+				expect(columnsSql).toMatch(/\(\S*table_schema = 'crm'\)/);
+				expect(tablesSql).not.toContain("bad-schema");
+			}
+		});
+
+		it("introspect({ tables }) accepts schema.* too", async () => {
+			const clientFn = vi
+				.fn()
+				.mockResolvedValue({ rows: [], fields: [] }) as PostgresClientFn;
+			const adapter = new PostgresAdapter(clientFn);
+			await adapter.introspect({ tables: ["analytics.*"] });
+			const [tablesSql] = vi.mocked(clientFn).mock.calls[0];
+			expect(tablesSql).toContain("AND ((n.nspname = 'analytics'))");
+		});
+
+		it("execute allows any table in a wildcarded schema", async () => {
+			const clientFn = createMockClientFn();
+			const adapter = new PostgresAdapter(clientFn, {
+				allowedTables: ["crm.*", "public.users"],
+			});
+
+			await expect(
+				adapter.execute(
+					"SELECT * FROM crm.contacts c JOIN crm.deals d ON d.id = c.id JOIN users u ON u.id = c.id",
+				),
+			).resolves.toBeDefined();
+			await expect(adapter.execute("SELECT * FROM orders")).rejects.toThrow(
+				'Query references table "public.orders" which is not in the allowed tables list',
+			);
+			await expect(
+				adapter.execute("SELECT * FROM sales.deals"),
+			).rejects.toThrow('"sales.deals"');
+		});
+
+		it("bare * means the default schema", async () => {
+			const clientFn = createMockClientFn();
+			const adapter = new PostgresAdapter(clientFn, { allowedTables: ["*"] });
+			await expect(adapter.execute("SELECT * FROM orders")).resolves.toBeDefined();
+			await expect(adapter.execute("SELECT * FROM crm.deals")).rejects.toThrow();
+		});
+	});
+
+	describe("catalog listing", () => {
+		it("listSchemas reads pg_class/pg_namespace and maps counts", async () => {
+			const clientFn = vi.fn().mockResolvedValue({
+				rows: [
+					{ schema: "crm", table_count: "2" },
+					{ schema: "public", table_count: "10" },
+				],
+				fields: [],
+			}) as PostgresClientFn;
+			const adapter = new PostgresAdapter(clientFn);
+
+			await expect(adapter.listSchemas()).resolves.toEqual([
+				{ schema: "crm", tableCount: 2 },
+				{ schema: "public", tableCount: 10 },
+			]);
+			const [sql] = vi.mocked(clientFn).mock.calls[0];
+			expect(sql).toContain("FROM pg_class c");
+			expect(sql).toContain("relkind IN ('r', 'v', 'm')");
+			expect(sql).toContain("'pg_toast'");
+			expect(sql).toContain("NOT LIKE 'pg_temp%'");
+			expect(sql).toContain("GROUP BY n.nspname");
+		});
+
+		it("listSchemas uses svv_tables for redshift", async () => {
+			const clientFn = vi
+				.fn()
+				.mockResolvedValue({ rows: [], fields: [] }) as PostgresClientFn;
+			const adapter = new PostgresAdapter(clientFn, { dialect: "redshift" });
+			await adapter.listSchemas();
+			const [sql] = vi.mocked(clientFn).mock.calls[0];
+			expect(sql).toContain("FROM svv_tables");
+			expect(sql).toContain("table_catalog = current_database()");
+			expect(sql).toContain("'pg_internal'");
+			expect(sql).toContain("GROUP BY table_schema");
+		});
+
+		it("listTables binds schema and escaped ILIKE search", () => {
+			const { sql, params } = buildListTablesQuery("postgres", {
+				schema: "crm",
+				search: "user_%",
+				limit: 50,
+			});
+			expect(sql).toContain("AND n.nspname = $1");
+			expect(sql).toContain("AND c.relname ILIKE $2");
+			expect(sql).toContain("LIMIT 50;");
+			expect(params).toEqual(["crm", "%user\\_\\%%"]);
+		});
+
+		it("listTables clamps limit and omits empty filters", () => {
+			const def = buildListTablesQuery("postgres", { search: "  " });
+			expect(def.params).toEqual([]);
+			expect(def.sql).toContain("LIMIT 500;");
+			expect(def.sql).not.toContain("ILIKE");
+			expect(buildListTablesQuery("postgres", { limit: 99999 }).sql).toContain(
+				"LIMIT 5000;",
+			);
+			expect(buildListTablesQuery("postgres", { limit: -3 }).sql).toContain(
+				"LIMIT 1;",
+			);
+		});
+
+		it("listTables uses svv_tables for redshift and maps types", async () => {
+			const clientFn = vi.fn().mockResolvedValue({
+				rows: [
+					{ schema: "public", name: "events", table_type: "BASE TABLE" },
+					{ schema: "public", name: "active_users", table_type: "VIEW" },
+				],
+				fields: [],
+			}) as PostgresClientFn;
+			const adapter = new PostgresAdapter(clientFn, { dialect: "redshift" });
+
+			const tables = await adapter.listTables({ search: "e" });
+
+			expect(tables).toEqual([
+				{ schema: "public", name: "events", type: "table" },
+				{ schema: "public", name: "active_users", type: "view" },
+			]);
+			const [sql, params] = vi.mocked(clientFn).mock.calls[0];
+			expect(sql).toContain("FROM svv_tables");
+			expect(sql).toContain("AND table_name ILIKE $1");
+			expect(params).toEqual(["%e%"]);
+		});
+
+		it("listTables maps materialized views for postgres", async () => {
+			const clientFn = vi.fn().mockResolvedValue({
+				rows: [{ schema: "public", name: "mv", table_type: "materialized_view" }],
+				fields: [],
+			}) as PostgresClientFn;
+			const adapter = new PostgresAdapter(clientFn);
+			await expect(adapter.listTables()).resolves.toEqual([
+				{ schema: "public", name: "mv", type: "materialized_view" },
+			]);
 		});
 	});
 });

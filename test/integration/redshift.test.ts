@@ -134,6 +134,92 @@ describe("Redshift Integration (emulated on Postgres)", () => {
 		});
 	});
 
+	describe("schema wildcard + catalog listing", () => {
+		it("introspects every table in crm.* only", async () => {
+			const adapter = new PostgresAdapter(clientFn, {
+				database: "dev",
+				dialect: "redshift",
+				allowedTables: ["crm.*"],
+			});
+
+			const schema = await adapter.introspect();
+
+			expect(schema.tables.map((t) => `${t.schema}.${t.name}`)).toEqual([
+				"crm.users",
+			]);
+			expect(schema.tables[0]?.columns.map((c) => c.name)).toEqual([
+				"id",
+				"full_name",
+				"tenant_id",
+			]);
+			await expect(
+				adapter.execute("SELECT id FROM crm.users"),
+			).resolves.toBeDefined();
+			await expect(
+				adapter.execute("SELECT id FROM public.users"),
+			).rejects.toThrow("not in the allowed tables list");
+		});
+
+		it("mixes schema.* with specific tables", async () => {
+			const adapter = new PostgresAdapter(clientFn, {
+				database: "dev",
+				dialect: "redshift",
+				allowedTables: ["crm.*", "public.events"],
+			});
+
+			const schema = await adapter.introspect();
+
+			expect(schema.tables.map((t) => `${t.schema}.${t.name}`)).toEqual([
+				"crm.users",
+				"public.events",
+			]);
+		});
+
+		it("lists schemas with table counts", async () => {
+			for (const dialect of ["redshift", "postgres"] as const) {
+				const adapter = new PostgresAdapter(clientFn, {
+					database: "dev",
+					dialect,
+				});
+				const schemas = await adapter.listSchemas();
+				expect(schemas.filter((s) => s.schema !== "redshift_compat")).toEqual([
+					{ schema: "crm", tableCount: 1 },
+					{ schema: "public", tableCount: 3 },
+				]);
+			}
+		});
+
+		it("lists tables filtered by schema and case-insensitive search", async () => {
+			const adapter = new PostgresAdapter(clientFn, {
+				database: "dev",
+				dialect: "redshift",
+			});
+
+			await expect(adapter.listTables({ schema: "public" })).resolves.toEqual([
+				{ schema: "public", name: "active_users", type: "view" },
+				{ schema: "public", name: "events", type: "table" },
+				{ schema: "public", name: "users", type: "table" },
+			]);
+			await expect(adapter.listTables({ search: "USER" })).resolves.toEqual([
+				{ schema: "crm", name: "users", type: "table" },
+				{ schema: "public", name: "active_users", type: "view" },
+				{ schema: "public", name: "users", type: "table" },
+			]);
+			// LIKE metacharacters are matched literally
+			await expect(adapter.listTables({ search: "_" })).resolves.toEqual([
+				{ schema: "public", name: "active_users", type: "view" },
+			]);
+			await expect(adapter.listTables({ limit: 1 })).resolves.toHaveLength(1);
+		});
+
+		it("postgres dialect lists tables the same way", async () => {
+			const adapter = new PostgresAdapter(clientFn, { database: "dev" });
+			await expect(
+				adapter.listTables({ schema: "crm", search: "us" }),
+			).resolves.toEqual([{ schema: "crm", name: "users", type: "table" }]);
+		});
+	});
+
 	describe("execute", () => {
 		it("runs Redshift-style SQL with $N tenant parameters", async () => {
 			const adapter = new PostgresAdapter(clientFn, {

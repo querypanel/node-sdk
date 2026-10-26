@@ -210,6 +210,29 @@ describe("ApiClient", () => {
 			);
 		});
 
+		it("should use the nested message for platform errors with an object error", async () => {
+			mockFetch.mockResolvedValue({
+				ok: false,
+				status: 413,
+				statusText: "",
+				text: async () =>
+					JSON.stringify({
+						error: {
+							code: "413",
+							message: "Request Entity Too Large",
+						},
+					}),
+			});
+
+			try {
+				await client.post("/ingest", {}, "tenant-1");
+				expect.fail("Should have thrown");
+			} catch (error: any) {
+				expect(error.message).toBe("Request Entity Too Large (HTTP 413)");
+				expect(error.status).toBe(413);
+			}
+		});
+
 		it("should include error details in thrown error", async () => {
 			mockFetch.mockResolvedValue({
 				ok: false,

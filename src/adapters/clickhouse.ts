@@ -10,7 +10,14 @@ import type {
 	TableSchema,
 } from "../schema/types";
 import { parseKeyExpression, unwrapTypeModifiers } from "../utils/clickhouse";
-import type { DatabaseAdapter, DatabaseExecutionResult } from "./types";
+import {
+	type CatalogSchema,
+	type CatalogTable,
+	type DatabaseAdapter,
+	type DatabaseExecutionResult,
+	type ListTablesOptions,
+	resolveCatalogLimit,
+} from "./types";
 
 export interface ClickHouseAdapterOptions {
 	/** Optional logical database name used in introspection metadata. */
@@ -26,6 +33,7 @@ export interface ClickHouseAdapterOptions {
 	 * Optional allow-list of table names.
 	 * When specified, introspection and queries are restricted to these tables only.
 	 * ClickHouse tables are not schema-qualified, so just provide table names.
+	 * `*` or `<database>.*` allows every table (same as no filter).
 	 */
 	allowedTables?: string[];
 }
@@ -81,7 +89,10 @@ export class ClickHouseAdapter implements DatabaseAdapter {
 		this.defaultFormat = options.defaultFormat ?? "JSONEachRow";
 		this.kind = options.kind ?? "clickhouse";
 		if (options.allowedTables) {
-			this.allowedTables = normalizeTableFilter(options.allowedTables);
+			this.allowedTables = normalizeTableFilter(
+				options.allowedTables,
+				this.databaseName,
+			);
 		}
 	}
 
@@ -131,7 +142,7 @@ export class ClickHouseAdapter implements DatabaseAdapter {
 	async introspect(options?: IntrospectOptions): Promise<SchemaIntrospection> {
 		// Use adapter-level allowedTables if no specific tables provided in options
 		const tablesToIntrospect = options?.tables
-			? normalizeTableFilter(options.tables)
+			? normalizeTableFilter(options.tables, this.databaseName)
 			: this.allowedTables;
 		const allowTables = tablesToIntrospect ?? [];
 		const hasFilter = allowTables.length > 0;
@@ -202,6 +213,55 @@ export class ClickHouseAdapter implements DatabaseAdapter {
 			tables: tableSchemas,
 			introspectedAt: new Date().toISOString(),
 		};
+	}
+
+	/** The adapter is bound to one database, so this returns a single row. */
+	async listSchemas(): Promise<CatalogSchema[]> {
+		const rows = await this.query<{ table_count: string | number }>(
+			`SELECT count() AS table_count
+       FROM system.tables
+       WHERE database = {db:String}`,
+			{ params: { db: this.databaseName } },
+		);
+		return [
+			{
+				schema: this.databaseName,
+				tableCount: toNumber(rows[0]?.table_count) ?? 0,
+			},
+		];
+	}
+
+	/**
+	 * List tables in the bound database. Reads the full catalog (not restricted
+	 * by `allowedTables`). Default limit 500, max 5000.
+	 */
+	async listTables(options: ListTablesOptions = {}): Promise<CatalogTable[]> {
+		if (options.schema && options.schema !== this.databaseName) {
+			return [];
+		}
+		const params: Record<string, unknown> = {
+			db: this.databaseName,
+			limit: resolveCatalogLimit(options.limit),
+		};
+		const search = options.search?.trim();
+		let searchClause = "";
+		if (search) {
+			params.search = search;
+			searchClause = " AND positionCaseInsensitive(name, {search:String}) > 0";
+		}
+		const rows = await this.query<{ name: string; engine: string }>(
+			`SELECT name, engine
+       FROM system.tables
+       WHERE database = {db:String}${searchClause}
+       ORDER BY name
+       LIMIT {limit:UInt32}`,
+			{ params },
+		);
+		return rows.map((row) => ({
+			schema: this.databaseName,
+			name: row.name,
+			type: asCatalogTableType(row.engine),
+		}));
 	}
 
 	private validateQueryTables(sql: string): void {
@@ -300,7 +360,14 @@ function normalizePayload<T>(payload: unknown): T[] {
 	return [];
 }
 
-function normalizeTableFilter(tables?: string[] | null): string[] {
+/**
+ * Normalize to bare table names. `*` or `<database>.*` means "all tables" and
+ * returns an empty list (no filter); wildcards for other databases are ignored.
+ */
+function normalizeTableFilter(
+	tables: string[] | null | undefined,
+	databaseName: string,
+): string[] {
 	if (!tables?.length) return [];
 	const seen = new Set<string>();
 	const normalized: string[] = [];
@@ -308,8 +375,10 @@ function normalizeTableFilter(tables?: string[] | null): string[] {
 		if (!table) continue;
 		const trimmed = table.trim();
 		if (!trimmed) continue;
+		if (trimmed === "*" || trimmed === `${databaseName}.*`) return [];
 		const parts = trimmed.split(".");
 		const tableName = parts[parts.length - 1];
+		if (tableName === "*") continue;
 		if (!tableName || seen.has(tableName)) continue;
 		seen.add(tableName);
 		normalized.push(tableName);
@@ -347,6 +416,13 @@ function asTableType(engine: unknown): TableSchema["type"] {
 			return "view";
 		}
 	}
+	return "table";
+}
+
+function asCatalogTableType(engine: unknown): CatalogTable["type"] {
+	const normalized = typeof engine === "string" ? engine.toLowerCase() : "";
+	if (normalized === "materializedview") return "materialized_view";
+	if (normalized.includes("view")) return "view";
 	return "table";
 }
 
