@@ -205,8 +205,8 @@ export type VizSpec = ChartSpec | TableSpec | MetricSpec | MapSpec;
  * These hints guide the LLM to generate specific visualization configurations.
  */
 export interface EncodingHints {
-  /** Preferred vizspec kind (chart, table, metric, map) */
-  kind?: 'chart' | 'table' | 'metric' | 'map';
+  /** Preferred vizspec kind. A map is chosen by the question ("show them on a map"), not by a hint. */
+  kind?: 'chart' | 'table' | 'metric';
   /** Preferred chart type (bar, line, area, scatter, pie) */
   chartType?: ChartType;
   /** X axis field configuration */
