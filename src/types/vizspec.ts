@@ -53,7 +53,7 @@ export interface SortSpec {
 
 export interface VizSpecBase {
   version: '1.0';
-  kind: 'chart' | 'table' | 'metric';
+  kind: 'chart' | 'table' | 'metric' | 'map';
   title?: string;
   description?: string;
   data: {
@@ -164,10 +164,37 @@ export interface MetricSpec extends VizSpecBase {
 }
 
 // ============================================================================
+// Map Spec
+// ============================================================================
+
+export type MapLocationMode = 'place' | 'latlng';
+
+export interface MapLocation {
+  mode: MapLocationMode;
+  postalCodeField: string | null; // mode=place: postal code column (tried first)
+  cityField: string | null;       // mode=place: city/town column (fallback)
+  latField: string | null;        // mode=latlng
+  lngField: string | null;        // mode=latlng
+}
+
+export interface MapEncoding {
+  location: MapLocation;
+  country: string;            // ISO 3166-1 alpha-2, e.g. "HU"
+  colorField: string | null;  // category column, e.g. status
+  labelField: string | null;  // device name/id shown in the click list
+  tooltips: string[] | null;
+}
+
+export interface MapSpec extends VizSpecBase {
+  kind: 'map';
+  encoding: MapEncoding;
+}
+
+// ============================================================================
 // Union Type
 // ============================================================================
 
-export type VizSpec = ChartSpec | TableSpec | MetricSpec;
+export type VizSpec = ChartSpec | TableSpec | MetricSpec | MapSpec;
 
 // ============================================================================
 // Service Input/Output Types
@@ -178,8 +205,8 @@ export type VizSpec = ChartSpec | TableSpec | MetricSpec;
  * These hints guide the LLM to generate specific visualization configurations.
  */
 export interface EncodingHints {
-  /** Preferred vizspec kind (chart, table, metric) */
-  kind?: 'chart' | 'table' | 'metric';
+  /** Preferred vizspec kind (chart, table, metric, map) */
+  kind?: 'chart' | 'table' | 'metric' | 'map';
   /** Preferred chart type (bar, line, area, scatter, pie) */
   chartType?: ChartType;
   /** X axis field configuration */

@@ -174,6 +174,10 @@ export type {
 	EncodingHints,
 	FieldRef,
 	FieldType,
+	MapEncoding,
+	MapLocation,
+	MapLocationMode,
+	MapSpec,
 	MetricEncoding,
 	MetricField,
 	MetricSpec,
@@ -715,7 +719,7 @@ export class QueryPanelSdkAPI {
 	 * @param input - VizSpec generation input with question, SQL, and result data
 	 * @param options - Optional settings for tenant and retries
 	 * @param signal - Optional AbortSignal for cancellation
-	 * @returns VizSpec specification for chart, table, or metric visualization
+	 * @returns VizSpec specification for chart, table, metric, or map visualization
 	 *
 	 * @example
 	 * ```typescript

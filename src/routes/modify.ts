@@ -101,7 +101,7 @@ export interface SqlModifications {
  * These changes only affect how the chart is rendered.
  */
 export interface VizModifications {
-	/** Change the VizSpec kind (chart, table, metric). Applies to vizspec only. */
+	/** Change the VizSpec kind (chart, table, metric, map). Applies to vizspec only. */
 	kind?: VizSpecKind;
 	/** Change the chart type (line, bar, area, scatter, pie) */
 	chartType?: ChartType;
