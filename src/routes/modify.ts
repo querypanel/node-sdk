@@ -615,7 +615,7 @@ function stripVizSpecOnlyHints(
 		return hints;
 	}
 
-	const { kind: _kind, ...rest } = hints as { kind?: unknown };
+	const { kind: _kind, ...rest } = hints;
 	return rest;
 }
 

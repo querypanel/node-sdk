@@ -171,18 +171,18 @@ export type MapLocationMode = 'place' | 'latlng';
 
 export interface MapLocation {
   mode: MapLocationMode;
-  postalCodeField: string | null; // mode=place: postal code column (tried first)
-  cityField: string | null;       // mode=place: city/town column (fallback)
-  latField: string | null;        // mode=latlng
-  lngField: string | null;        // mode=latlng
+  postalCodeField?: string | null; // mode=place: postal code column (tried first)
+  cityField?: string | null;       // mode=place: city/town column (fallback)
+  latField?: string | null;        // mode=latlng
+  lngField?: string | null;        // mode=latlng
 }
 
 export interface MapEncoding {
   location: MapLocation;
   country: string;            // ISO 3166-1 alpha-2, e.g. "HU"
-  colorField: string | null;  // category column, e.g. status
-  labelField: string | null;  // device name/id shown in the click list
-  tooltips: string[] | null;
+  colorField?: string | null;  // category column, e.g. status
+  labelField?: string | null;  // device name/id shown in the click list
+  tooltips?: string[] | null;
 }
 
 export interface MapSpec extends VizSpecBase {
