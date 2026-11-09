@@ -157,6 +157,40 @@ describe("QueryEngine", () => {
 			});
 		});
 
+		it("rewrites to the tenant schema instead of adding a row filter in schema mode", async () => {
+			queryEngine.attachDatabase("test-db", mockAdapter, {
+				name: "test-db",
+				dialect: "redshift",
+				tenantFieldName: "group_id",
+				tenantSchemaTemplate: "group_{tenant}_indexed",
+			});
+
+			await queryEngine.validateAndExecute(
+				"SELECT * FROM group_4048_indexed.users",
+				{},
+				"test-db",
+				"1001",
+			);
+
+			expect(mockAdapter.execute).toHaveBeenCalledWith(
+				"SELECT * FROM group_1001_indexed.users",
+				{},
+			);
+		});
+
+		it("refuses SQL outside the tenant schema in schema mode", async () => {
+			queryEngine.attachDatabase("test-db", mockAdapter, {
+				name: "test-db",
+				dialect: "redshift",
+				tenantSchemaTemplate: "group_{tenant}_indexed",
+			});
+
+			await expect(
+				queryEngine.validateAndExecute("SELECT * FROM public.users", {}, "test-db", "1001"),
+			).rejects.toThrow(/outside the tenant schema/);
+			expect(mockAdapter.execute).not.toHaveBeenCalled();
+		});
+
 		it("should apply tenant isolation when configured", async () => {
 			const metadata: DatabaseMetadata = {
 				name: "test-db",

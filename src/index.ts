@@ -83,6 +83,26 @@ export type {
 	RequestHandlerResult,
 } from "./core/api-types";
 export { CallbackApiClient } from "./core/callback-client";
+export {
+	parseTenantSchemaTemplate,
+	resolveTenantSchema,
+	rewriteTenantSchema,
+	TenantSchemaError,
+} from "./core/tenant-schema";
+export type { TenantSchemaOptions } from "./core/tenant-schema";
+import { parseTenantSchemaTemplate } from "./core/tenant-schema";
+
+/** Schema-per-tenant options for attachPostgres / attachRedshift. */
+export interface TenantSchemaAttachOptions {
+	/**
+	 * Each tenant has its own schema, e.g. `group_{tenant}_indexed`. SQL written
+	 * against any schema matching the template is run against the caller's
+	 * tenant schema; no tenantFieldName is needed.
+	 */
+	tenantSchemaTemplate?: string;
+	/** Schemas every tenant may also read (e.g. shared lookup tables). */
+	sharedSchemas?: string[];
+}
 
 // Re-export from query-engine
 export type { ParamRecord, ParamValue } from "./core/query-engine";
@@ -342,7 +362,7 @@ export class QueryPanelSdkAPI {
 			tenantFieldName?: string;
 			tenantFieldType?: string;
 			enforceTenantIsolation?: boolean;
-		},
+		} & TenantSchemaAttachOptions,
 	): void {
 		const adapter = new PostgresAdapter(clientFn, options);
 
@@ -357,7 +377,13 @@ export class QueryPanelSdkAPI {
 				options?.tenantFieldName,
 				options?.enforceTenantIsolation,
 			),
+			tenantSchemaTemplate: options?.tenantSchemaTemplate?.trim() || undefined,
+			sharedSchemas: options?.sharedSchemas,
 		};
+		if (metadata.tenantSchemaTemplate) {
+			// Fail at attach time, not on the first query.
+			parseTenantSchemaTemplate(metadata.tenantSchemaTemplate);
+		}
 
 		this.queryEngine.attachDatabase(name, adapter, metadata);
 	}
@@ -376,7 +402,7 @@ export class QueryPanelSdkAPI {
 			tenantFieldName?: string;
 			tenantFieldType?: string;
 			enforceTenantIsolation?: boolean;
-		},
+		} & TenantSchemaAttachOptions,
 	): void {
 		this.attachPostgres(name, clientFn, { ...options, dialect: "redshift" });
 	}
