@@ -621,6 +621,20 @@ The SDK will:
 
 Without `maxRetry`, execution errors throw immediately (default behavior).
 
+#### Retry when the query returns nothing
+
+A query can run fine and still return nothing because a filter value does not match how the data stores it (`state = 'approved'` when the column holds `APPROVE`). With `retryOnEmptyResult`, the SDK treats an empty result, or a single row of only zeros/NULLs such as `COUNT(*) = 0`, like an execution error and asks for a repaired query within the same `maxRetry` budget:
+
+```ts
+const response = await qp.ask("How many transactions were declined?", {
+  tenantId: "tenant_123",
+  maxRetry: 1,
+  retryOnEmptyResult: true,
+});
+```
+
+Only the fact that the result was empty and the previous SQL are sent back; no rows or values leave your backend. If the last attempt is still empty, it is returned as is (no error). Off by default; each retry is one more generation round, so expect a few extra seconds on those questions.
+
 ## Need more?
 
 Open an issue or extend the SDK: the public class is in `src/index.ts` and each API route has a module under `src/routes/`. Pull requests are welcome for additional adapters, richer param coercion, or convenience helpers around charts/annotations.
