@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { QueryEngine } from "../core/query-engine";
 import { QueryErrorCode, QueryPipelineError } from "../errors";
 import { createMockQueryPanelApi } from "../test-utils";
-import { anonymizeResults, ask } from "./query";
+import { anonymizeResults, ask, EMPTY_RESULT_ERROR, isEmptyLikeResult } from "./query";
 
 describe("routes/query", () => {
 	let mockClient: ReturnType<typeof createMockQueryPanelApi>;
@@ -271,6 +271,64 @@ describe("routes/query", () => {
 				previous_sql: "SELECT * FROM users",
 				parent_query_id: "query-1",
 			});
+		});
+
+		it("retryOnEmptyResult: retries a zero-count result with a data-free error, then returns the next result", async () => {
+			const response = (queryId: string, sql: string) => ({
+				data: { success: true, sql, params: [], dialect: "postgres", queryId },
+				headers: mockHeaders(),
+			});
+			mockClient.postWithHeaders
+				.mockResolvedValueOnce(response("query-1", "SELECT count(*) AS n FROM t WHERE state = 'approved'"))
+				.mockResolvedValueOnce(response("query-2", "SELECT count(*) AS n FROM t WHERE state = 'APPROVE'"));
+			mockQueryEngineSetup.validateAndExecute
+				.mockResolvedValueOnce({ rows: [{ n: 0 }], fields: ["n"] })
+				.mockResolvedValueOnce({ rows: [{ n: 356 }], fields: ["n"] });
+			mockClient.post.mockResolvedValueOnce({ chart: { mark: "bar" }, notes: null });
+
+			const result = await ask(mockClient, mockQueryEngine, "approved count", {
+				tenantId: "tenant-1",
+				maxRetry: 1,
+				retryOnEmptyResult: true,
+			});
+
+			expect(result.rows).toEqual([{ n: 356 }]);
+			const retry = mockClient.postWithHeaders.mock.calls[1][1];
+			expect(retry).toMatchObject({
+				last_error: EMPTY_RESULT_ERROR,
+				previous_sql: "SELECT count(*) AS n FROM t WHERE state = 'approved'",
+				parent_query_id: "query-1",
+			});
+			// Only the fact that it was empty goes back: no rows, no values.
+			expect(JSON.stringify(retry)).not.toContain("356");
+			expect(mockClient.post).toHaveBeenCalledTimes(1);
+		});
+
+		it("retryOnEmptyResult: off by default, and an empty last attempt is returned, not thrown", async () => {
+			mockClient.postWithHeaders.mockResolvedValue({
+				data: { success: true, sql: "SELECT 1 WHERE false", params: [], dialect: "postgres" },
+				headers: mockHeaders(),
+			});
+			mockQueryEngineSetup.validateAndExecute.mockResolvedValue({ rows: [], fields: [] });
+			mockClient.post.mockResolvedValue({ chart: { mark: "bar" }, notes: null });
+
+			const off = await ask(mockClient, mockQueryEngine, "q", { tenantId: "tenant-1", maxRetry: 2 });
+			expect(off.rows).toEqual([]);
+			expect(mockClient.postWithHeaders).toHaveBeenCalledTimes(1);
+
+			mockClient.postWithHeaders.mockClear();
+			const on = await ask(mockClient, mockQueryEngine, "q", { tenantId: "tenant-1", maxRetry: 1, retryOnEmptyResult: true });
+			expect(on.rows).toEqual([]);
+			expect(mockClient.postWithHeaders).toHaveBeenCalledTimes(2);
+		});
+
+		it("isEmptyLikeResult: no rows or one all-zero row", () => {
+			expect(isEmptyLikeResult([])).toBe(true);
+			expect(isEmptyLikeResult([{ n: 0, total: null }])).toBe(true);
+			expect(isEmptyLikeResult([{ n: "0" }])).toBe(true);
+			expect(isEmptyLikeResult([{ n: 3 }])).toBe(false);
+			expect(isEmptyLikeResult([{ label: "x", n: 0 }])).toBe(false);
+			expect(isEmptyLikeResult([{ n: 0 }, { n: 0 }])).toBe(false);
 		});
 
 		it("should throw error after exhausting retries", async () => {

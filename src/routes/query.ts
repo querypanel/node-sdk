@@ -50,6 +50,12 @@ export interface AskOptions {
 	previousSql?: string;
 	/** Maximum number of retry attempts on execution failure. */
 	maxRetry?: number;
+	/**
+	 * Also retry (within `maxRetry`) when the query returns no rows, or one row of only zeros/NULLs
+	 * (what `COUNT(*) ... WHERE status = 'approved'` returns when the data stores 'APPROVE').
+	 * Only that fact is sent to QueryPanel, never rows or values. Default false.
+	 */
+	retryOnEmptyResult?: boolean;
 	/** Maximum number of retries for chart generation. */
 	chartMaxRetries?: number;
 	/** Choose chart generation method. */
@@ -196,6 +202,20 @@ export function resolveQueryPipeline(pipeline?: "v2"): "v2" {
 	return "v2";
 }
 
+/** Sent as `last_error` when retryOnEmptyResult retries an empty result. Carries no data. */
+export const EMPTY_RESULT_ERROR =
+	"The query ran but returned no rows (or only zero/NULL values). A filter value probably does not match how the data stores it (case, spelling, codes such as 'APPROVE' vs 'approved'), or a filter is narrower than the question. Check each filter value against the column's documented values and fix it; keep every filter the question asks for.";
+
+/** No rows, or one row whose values are all 0 / "0" / null (an aggregate over nothing). */
+export function isEmptyLikeResult(rows: unknown[]): boolean {
+	if (rows.length === 0) return true;
+	if (rows.length > 1) return false;
+	const row = rows[0];
+	if (!row || typeof row !== "object") return false;
+	const values = Object.values(row as Record<string, unknown>);
+	return values.length > 0 && values.every((v) => v === null || v === 0 || v === "0" || v === 0n);
+}
+
 /**
  * Route module for natural language query generation
  * Simple orchestration following Ousterhout's principle
@@ -313,6 +333,18 @@ export async function ask(
 				tenantId,
 			);
 			const rows = execution.rows ?? [];
+
+			if (options.retryOnEmptyResult && attempt < maxRetry && isEmptyLikeResult(rows)) {
+				attempt++;
+				lastError = EMPTY_RESULT_ERROR;
+				previousSql = sql;
+				console.warn("Query returned no data, retrying query generation", {
+					attempt,
+					maxAttempts: maxRetry + 1,
+					sql,
+				});
+				continue;
+			}
 
 			// Step 4: Generate chart encoding even when the query returns no rows,
 			// so headless clients can show "No Data" with the correct chart type.
