@@ -580,19 +580,21 @@ BigQuery is attached the same way with `attachBigQuery(name, clientFn, options)`
 
 ## One schema per tenant
 
-If each tenant has its own schema with the same tables (for example `group_4048_indexed`, `group_4049_indexed`), attach with `tenantSchemaTemplate` instead of `tenantFieldName`. Sync the schema of one tenant; the SQL QueryPanel generates names that schema, and the SDK rewrites it to the caller's schema (`{tenant}` replaced by `tenantId`) before running it:
+If each tenant has its own schema with the same tables (for example `group_4048_indexed`, `group_4049_indexed`), attach with `tenantSchema` instead of `tenantFieldName`. Sync the schema of one tenant; the SQL QueryPanel generates names that schema, and the SDK rewrites it to the caller's schema (`{tenant}` replaced by `tenantId`) before running it:
 
 ```ts
 qp.attachRedshift("analytics", createClient, {
-  tenantSchemaTemplate: "group_{tenant}_indexed",
-  sharedSchemas: ["lookups"], // optional: schemas every tenant may also read
+  tenantSchema: {
+    template: "group_{tenant}_indexed",
+    sharedSchemas: ["lookups"], // optional: schemas every tenant may also read
+  },
 });
 
 await qp.ask("How many members joined last month?", { tenantId: "4048" });
 // runs against group_4048_indexed
 ```
 
-Queries that read anything outside the tenant's schema, a shared schema or a CTE are refused, so a tenant cannot reach another tenant's schema. `tenantId` must be 1–64 letters, digits or `_`. Postgres and Redshift only. Adding a tenant needs no QueryPanel call: create its schema, then sign JWTs with its `tenantId`.
+Queries that read anything outside the tenant's schema, a shared schema or a CTE are refused, so a tenant cannot reach another tenant's schema. `allowedTables` written for the template schema (`group_4048_indexed.users`) applies to every tenant's schema. `tenantId` must be 1–64 letters, digits or `_`. Postgres and Redshift only. Adding a tenant needs no QueryPanel call: create its schema, then sign JWTs with its `tenantId`.
 
 ## Building locally
 

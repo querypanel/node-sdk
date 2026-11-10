@@ -12,6 +12,12 @@ import {
 	type ListTablesOptions,
 	resolveCatalogLimit,
 } from "./types";
+import { findRelations, type Relation } from "../core/sql-relations";
+import {
+	TENANT_SCHEMA_KEY,
+	type TenantSchemaConfig,
+	tenantSchemaKey,
+} from "../core/tenant-schema";
 
 export interface PostgresQueryResult {
 	rows: Array<Record<string, unknown>>;
@@ -44,6 +50,12 @@ export interface PostgresAdapterOptions {
 	 * to these tables only.
 	 */
 	allowedTables?: string[];
+	/**
+	 * Schema-per-tenant connection: SQL has been rewritten to the caller's tenant
+	 * schema, so queries may read any schema the template produces (or the tables
+	 * `allowedTables` names in it) plus `sharedSchemas`, and nothing else.
+	 */
+	tenantSchema?: TenantSchemaConfig;
 }
 
 type TableRow = {
@@ -130,6 +142,8 @@ export class PostgresAdapter implements DatabaseAdapter {
 	private readonly kind: SchemaIntrospection["db"]["kind"];
 	private readonly dialect: PostgresWireDialect;
 	private readonly allowedTables?: NormalizedTable[];
+	/** Undefined when queries are unrestricted. */
+	private readonly allowsRelation?: (relation: Relation) => boolean;
 
 	constructor(
 		private readonly clientFn: PostgresClientFn,
@@ -145,6 +159,11 @@ export class PostgresAdapter implements DatabaseAdapter {
 				this.defaultSchema,
 			);
 		}
+		this.allowsRelation = buildRelationAllowlist(
+			this.allowedTables,
+			options.tenantSchema,
+			this.defaultSchema,
+		);
 	}
 
 	async execute(
@@ -152,8 +171,8 @@ export class PostgresAdapter implements DatabaseAdapter {
 		params?: Record<string, string | number | boolean | string[] | number[]>,
 	): Promise<DatabaseExecutionResult> {
 		// Validate query against allowed tables if restrictions are in place
-		if (this.allowedTables) {
-			this.validateQueryTables(sql);
+		if (this.allowsRelation) {
+			this.validateQueryTables(sql, this.allowsRelation);
 		}
 
 		const boundParams = filterParamsForPostgresSql(sql, params);
@@ -169,43 +188,13 @@ export class PostgresAdapter implements DatabaseAdapter {
 		return { fields, rows: result.rows };
 	}
 
-	private validateQueryTables(sql: string): void {
-		if (!this.allowedTables || this.allowedTables.length === 0) {
-			return;
-		}
-
-		const allowedSet = new Set(
-			this.allowedTables.map((t) => tableKey(t.schema, t.table)),
-		);
-		const allowedSchemas = new Set(
-			this.allowedTables
-				.filter((t) => t.table === WILDCARD)
-				.map((t) => t.schema),
-		);
-
-		// First, neutralize function calls that use FROM keyword (EXTRACT, SUBSTRING, TRIM, etc.)
-		// Replace their FROM with a placeholder to avoid false positives
-		const neutralizedSql = sql
-			.replace(/EXTRACT\s*\([^)]*FROM\s+[^)]+\)/gi, "EXTRACT(/*neutralized*/)")
-			.replace(/SUBSTRING\s*\([^)]*FROM\s+[^)]+\)/gi, "SUBSTRING(/*neutralized*/)")
-			.replace(/TRIM\s*\([^)]*FROM\s+[^)]+\)/gi, "TRIM(/*neutralized*/)")
-			.replace(/POSITION\s*\([^)]*FROM\s+[^)]+\)/gi, "POSITION(/*neutralized*/)");
-
-		// Extract potential table references from SQL
-		const tablePattern =
-			/(?:FROM|JOIN)\s+(?:ONLY\s+)?(?:([a-zA-Z_][a-zA-Z0-9_]*)\.)?(["']?[a-zA-Z_][a-zA-Z0-9_]*["']?)/gi;
-		const matches = neutralizedSql.matchAll(tablePattern);
-
-		for (const match of matches) {
-			const schema = match[1] ?? this.defaultSchema;
-			const table = match[2]?.replace(/['"]/g, "");
-			if (table) {
-				const key = tableKey(schema, table);
-				if (!allowedSet.has(key) && !allowedSchemas.has(schema)) {
-					throw new Error(
-						`Query references table "${schema}.${table}" which is not in the allowed tables list`,
-					);
-				}
+	private validateQueryTables(sql: string, allows: (relation: Relation) => boolean): void {
+		for (const relation of findRelations(sql)) {
+			if (!allows(relation)) {
+				const name = relation.parts.length === 1
+					? `${this.defaultSchema}.${relation.parts[0]}`
+					: relation.parts.join(".");
+				throw new Error(`Query references table "${name}" which is not in the allowed tables list`);
 			}
 		}
 	}
@@ -258,6 +247,10 @@ export class PostgresAdapter implements DatabaseAdapter {
 		sql: string,
 		params?: Record<string, string | number | boolean | string[] | number[]>,
 	): Promise<void> {
+		// Check the allowlist before EXPLAIN, so a refused query never reaches the database.
+		if (this.allowsRelation) {
+			this.validateQueryTables(sql, this.allowsRelation);
+		}
 		const boundParams = filterParamsForPostgresSql(sql, params);
 		let paramArray: unknown[] | undefined;
 		if (boundParams) {
@@ -616,6 +609,41 @@ export function buildListTablesQuery(
   LIMIT ${limit};`;
 
 	return { sql, params };
+}
+
+/**
+ * Which relations a query may read: the allowlist entries, and for a schema-per-tenant
+ * connection every template schema (or the allowlisted tables in it) plus the shared
+ * schemas. Undefined when nothing restricts queries.
+ */
+function buildRelationAllowlist(
+	allowedTables: NormalizedTable[] | undefined,
+	tenantSchema: TenantSchemaConfig | undefined,
+	defaultSchema: string,
+): ((relation: Relation) => boolean) | undefined {
+	if (!allowedTables?.length && !tenantSchema) return undefined;
+	const schemaKey = tenantSchema
+		? tenantSchemaKey(tenantSchema.template)
+		: (schema: string) => schema.toLowerCase();
+	const entries: NormalizedTable[] = [
+		...(allowedTables?.length
+			? allowedTables
+			: [{ schema: TENANT_SCHEMA_KEY, table: WILDCARD }]),
+		...(tenantSchema?.sharedSchemas ?? []).map((schema) => ({ schema, table: WILDCARD })),
+	];
+	const tables = new Set<string>();
+	const wildcardSchemas = new Set<string>();
+	for (const entry of entries) {
+		const schema = entry.schema === TENANT_SCHEMA_KEY ? entry.schema : schemaKey(entry.schema);
+		if (entry.table === WILDCARD) wildcardSchemas.add(schema);
+		else tables.add(tableKey(schema, entry.table.toLowerCase()));
+	}
+	return ({ parts }) => {
+		if (parts.length > 2) return false; // cross-database reference
+		const table = (parts[parts.length - 1] as string).toLowerCase();
+		const schema = schemaKey(parts.length === 2 ? (parts[0] as string) : defaultSchema);
+		return wildcardSchemas.has(schema) || tables.has(tableKey(schema, table));
+	};
 }
 
 function tableKey(schema: string, table: string): string {

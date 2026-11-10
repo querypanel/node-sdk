@@ -16,6 +16,61 @@ describe("PostgresAdapter", () => {
 		});
 
 	describe("validateQueryTables", () => {
+		describe("schema-per-tenant", () => {
+			const tenantSchema = { template: "group_{tenant}_indexed", sharedSchemas: ["lookups"] };
+
+			it("allows template and shared schemas, refuses everything else", async () => {
+				const adapter = new PostgresAdapter(createMockClientFn(), { tenantSchema });
+				await expect(
+					adapter.execute(
+						"SELECT * FROM group_1001_indexed.users u JOIN lookups.states s ON s.code = u.state",
+					),
+				).resolves.toBeDefined();
+				for (const sql of [
+					"SELECT * FROM public.users",
+					"SELECT usename FROM pg_catalog.pg_user",
+					"SELECT * FROM users",
+					"SELECT * FROM otherdb.group_1001_indexed.users",
+					"SELECT * FROM group_1001_indexed.users WHERE id IN (SELECT id FROM base.users)",
+				]) {
+					await expect(adapter.execute(sql)).rejects.toThrow("not in the allowed tables list");
+				}
+			});
+
+			it("applies an allowlist written for the template schema to every tenant schema", async () => {
+				const adapter = new PostgresAdapter(createMockClientFn(), {
+					tenantSchema,
+					allowedTables: ["group_4048_indexed.users"],
+				});
+				await expect(adapter.execute("SELECT * FROM group_1001_indexed.users")).resolves.toBeDefined();
+				await expect(adapter.execute("SELECT * FROM group_1001_indexed.orders")).rejects.toThrow(
+					'"group_1001_indexed.orders" which is not in the allowed tables list',
+				);
+			});
+
+			it("refuses in validate() before EXPLAIN reaches the database", async () => {
+				const clientFn = createMockClientFn();
+				const adapter = new PostgresAdapter(clientFn, { tenantSchema });
+				await expect(
+					adapter.validate("SELECT 1 FROM group_1001_indexed.users a JOIN group_1001_indexed.users b ON a.id = b.id, public.anything"),
+				).rejects.toThrow('"public.anything" which is not in the allowed tables list');
+				expect(clientFn).not.toHaveBeenCalled();
+			});
+
+			it("rejects an invalid template when the adapter is created", () => {
+				expect(
+					() => new PostgresAdapter(createMockClientFn(), { tenantSchema: { template: "nope" } }),
+				).toThrow(/exactly once/);
+			});
+		});
+
+		it("does not treat CTE names as tables", async () => {
+			const adapter = new PostgresAdapter(createMockClientFn(), { allowedTables: ["public.users"] });
+			await expect(
+				adapter.execute("WITH recent AS (SELECT * FROM users) SELECT * FROM recent"),
+			).resolves.toBeDefined();
+		});
+
 		it("should allow queries to tables in the allowed list", async () => {
 			const clientFn = createMockClientFn();
 			const adapter = new PostgresAdapter(clientFn, {

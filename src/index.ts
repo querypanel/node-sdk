@@ -89,19 +89,17 @@ export {
 	rewriteTenantSchema,
 	TenantSchemaError,
 } from "./core/tenant-schema";
-export type { TenantSchemaOptions } from "./core/tenant-schema";
-import { parseTenantSchemaTemplate } from "./core/tenant-schema";
+export type { TenantSchemaConfig } from "./core/tenant-schema";
+import type { TenantSchemaConfig } from "./core/tenant-schema";
 
-/** Schema-per-tenant options for attachPostgres / attachRedshift. */
+/** Schema-per-tenant option for attachPostgres / attachRedshift (instead of tenantFieldName). */
 export interface TenantSchemaAttachOptions {
 	/**
-	 * Each tenant has its own schema, e.g. `group_{tenant}_indexed`. SQL written
-	 * against any schema matching the template is run against the caller's
-	 * tenant schema; no tenantFieldName is needed.
+	 * Each tenant has its own schema, e.g. `{ template: "group_{tenant}_indexed" }`.
+	 * SQL naming any schema the template produces runs against the caller's tenant
+	 * schema, and only that schema (plus `sharedSchemas`) may be read.
 	 */
-	tenantSchemaTemplate?: string;
-	/** Schemas every tenant may also read (e.g. shared lookup tables). */
-	sharedSchemas?: string[];
+	tenantSchema?: TenantSchemaConfig;
 }
 
 // Re-export from query-engine
@@ -364,6 +362,10 @@ export class QueryPanelSdkAPI {
 			enforceTenantIsolation?: boolean;
 		} & TenantSchemaAttachOptions,
 	): void {
+		if (options?.tenantSchema && options.tenantFieldName) {
+			throw new Error("Use either tenantSchema or tenantFieldName for tenant isolation, not both");
+		}
+		// Validates the template at attach time, not on the first query.
 		const adapter = new PostgresAdapter(clientFn, options);
 
 		const metadata: DatabaseMetadata = {
@@ -377,13 +379,8 @@ export class QueryPanelSdkAPI {
 				options?.tenantFieldName,
 				options?.enforceTenantIsolation,
 			),
-			tenantSchemaTemplate: options?.tenantSchemaTemplate?.trim() || undefined,
-			sharedSchemas: options?.sharedSchemas,
+			tenantSchema: options?.tenantSchema,
 		};
-		if (metadata.tenantSchemaTemplate) {
-			// Fail at attach time, not on the first query.
-			parseTenantSchemaTemplate(metadata.tenantSchemaTemplate);
-		}
 
 		this.queryEngine.attachDatabase(name, adapter, metadata);
 	}

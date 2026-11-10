@@ -1,7 +1,7 @@
 import type { DatabaseAdapter, DatabaseDialect } from "../adapters/types";
 import { mapGeneratedParams as mapGeneratedParamsFromMetadata } from "./map-generated-params";
 import type { ParamRecord } from "./param-types";
-import { rewriteTenantSchema } from "./tenant-schema";
+import { rewriteTenantSchema, type TenantSchemaConfig } from "./tenant-schema";
 
 export type { ParamRecord, ParamValue } from "./param-types";
 
@@ -14,12 +14,10 @@ export interface DatabaseMetadata {
 	tenantFieldType?: string;
 	enforceTenantIsolation?: boolean;
 	/**
-	 * Schema-per-tenant isolation, e.g. `group_{tenant}_indexed`. When set, SQL is
-	 * rewritten to the tenant's schema and no tenant row filter is added.
+	 * Schema-per-tenant isolation instead of a tenant row filter: SQL is rewritten
+	 * to the caller's tenant schema; the adapter limits what it may read.
 	 */
-	tenantSchemaTemplate?: string;
-	/** Schemas every tenant may read alongside its own (schema-per-tenant only). */
-	sharedSchemas?: string[];
+	tenantSchema?: TenantSchemaConfig;
 }
 
 export interface DatabaseExecutionResult {
@@ -85,12 +83,8 @@ export class QueryEngine {
 
 		// Apply tenant isolation if configured
 		let finalSql = sql;
-		if (metadata?.tenantSchemaTemplate) {
-			finalSql = rewriteTenantSchema(sql, {
-				template: metadata.tenantSchemaTemplate,
-				tenantId,
-				sharedSchemas: metadata.sharedSchemas,
-			});
+		if (metadata?.tenantSchema) {
+			finalSql = rewriteTenantSchema(sql, metadata.tenantSchema.template, tenantId);
 		} else if (metadata) {
 			finalSql = this.ensureTenantIsolation(sql, params, metadata, tenantId);
 		}

@@ -3,17 +3,16 @@
  *
  * Some customers keep each tenant in its own schema with identical tables,
  * e.g. `group_4048_indexed`, `group_4049_indexed`. Knowledge and generated SQL
- * use one template schema. At execution time we:
- *  1. rewrite every schema qualifier that matches the template pattern to the
- *     caller's tenant schema, and
- *  2. fail closed: refuse SQL that still mentions another tenant's schema, or
- *     reads a relation that is not in the tenant schema, a shared schema or a CTE.
+ * use one template schema. At execution time the SQL is rewritten to the
+ * caller's tenant schema (`rewriteTenantSchema`); which relations it may read is
+ * enforced by the adapter's allowlist (`tenantSchemaAllows`).
  */
+import { identifier, isPunct, tokenize } from "./sql-relations";
 
-export interface TenantSchemaOptions {
+/** Attach option for schema-per-tenant isolation. */
+export interface TenantSchemaConfig {
 	/** Schema name with one `{tenant}` placeholder, e.g. `group_{tenant}_indexed`. */
 	template: string;
-	tenantId: string;
 	/** Extra schemas every tenant may read (lookup tables etc.). */
 	sharedSchemas?: string[];
 }
@@ -52,6 +51,17 @@ export function parseTenantSchemaTemplate(template: string): ParsedTemplate {
 	return { prefix, suffix };
 }
 
+/** True for any schema the template can produce (`group_4048_indexed`, `group_x_indexed`, …). */
+function matchesTemplate({ prefix, suffix }: ParsedTemplate, schema: string): boolean {
+	const value = schema.toLowerCase();
+	return (
+		value.length > prefix.length + suffix.length &&
+		value.startsWith(prefix) &&
+		value.endsWith(suffix) &&
+		/^[a-z0-9_]+$/.test(value.slice(prefix.length, value.length - suffix.length))
+	);
+}
+
 /** The schema a tenant's queries run against. Throws for unsafe tenant ids. */
 export function resolveTenantSchema(template: string, tenantId: string): string {
 	const { prefix, suffix } = parseTenantSchemaTemplate(template);
@@ -64,190 +74,49 @@ export function resolveTenantSchema(template: string, tenantId: string): string 
 	return `${prefix}${id.toLowerCase()}${suffix}`;
 }
 
-type Token =
-	| { kind: "word"; text: string; quoted: boolean; start: number; end: number }
-	| { kind: "punct"; text: string; start: number; end: number };
-
-/** Words (bare or "quoted") and punctuation; strings, comments and numbers are skipped. */
-function tokenize(sql: string): Token[] {
-	const tokens: Token[] = [];
-	let i = 0;
-	while (i < sql.length) {
-		const ch = sql[i] as string;
-		const next = sql[i + 1];
-		if (/\s/.test(ch)) {
-			i++;
-		} else if (ch === "-" && next === "-") {
-			while (i < sql.length && sql[i] !== "\n") i++;
-		} else if (ch === "/" && next === "*") {
-			const end = sql.indexOf("*/", i + 2);
-			i = end < 0 ? sql.length : end + 2;
-		} else if (ch === "'") {
-			i++;
-			while (i < sql.length) {
-				if (sql[i] === "\\") i += 2;
-				else if (sql[i] === "'" && sql[i + 1] === "'") i += 2;
-				else if (sql[i] === "'") break;
-				else i++;
-			}
-			i++;
-		} else if (ch === "$" && /[A-Za-z_$]/.test(next ?? "")) {
-			const tag = /^\$[A-Za-z_]*\$/.exec(sql.slice(i))?.[0];
-			if (tag) {
-				const end = sql.indexOf(tag, i + tag.length);
-				i = end < 0 ? sql.length : end + tag.length;
-			} else {
-				i++;
-			}
-		} else if (ch === '"') {
-			const start = i;
-			let text = "";
-			i++;
-			while (i < sql.length) {
-				if (sql[i] === '"' && sql[i + 1] === '"') {
-					text += '"';
-					i += 2;
-				} else if (sql[i] === '"') break;
-				else text += sql[i++];
-			}
-			i++;
-			tokens.push({ kind: "word", text, quoted: true, start, end: i });
-		} else if (/[A-Za-z_]/.test(ch)) {
-			const start = i;
-			while (i < sql.length && /[A-Za-z0-9_$]/.test(sql[i] as string)) i++;
-			tokens.push({ kind: "word", text: sql.slice(start, i), quoted: false, start, end: i });
-		} else if (/[0-9]/.test(ch)) {
-			while (i < sql.length && /[0-9.eE]/.test(sql[i] as string)) i++;
-		} else {
-			tokens.push({ kind: "punct", text: ch, start: i, end: i + 1 });
-			i++;
-		}
-	}
-	return tokens;
-}
-
-const name = (t: Token | undefined) =>
-	t?.kind === "word" ? (t.quoted ? t.text : t.text.toLowerCase()) : undefined;
-const isKeyword = (t: Token | undefined, word: string) =>
-	t?.kind === "word" && !t.quoted && t.text.toLowerCase() === word;
-const isPunct = (t: Token | undefined, p: string) => t?.kind === "punct" && t.text === p;
-
-/** Words that end a FROM list item (so an alias is not mistaken for a table). */
-const CLAUSE_WORDS = new Set([
-	"where", "group", "order", "limit", "having", "union", "intersect", "except",
-	"join", "inner", "left", "right", "full", "cross", "natural", "on", "using",
-	"window", "qualify", "offset", "fetch", "for", "lateral", "as",
-]);
-
 /**
- * Rewrite template-schema qualifiers to the tenant's schema and verify the
- * result reads only tenant, shared or CTE relations. Throws TenantSchemaError.
+ * Rewrite every template-schema qualifier to the tenant's schema. Fails closed when
+ * another tenant's schema is still named anywhere (strings and comments included).
  */
-export function rewriteTenantSchema(sql: string, options: TenantSchemaOptions): string {
-	const { prefix, suffix } = parseTenantSchemaTemplate(options.template);
-	const tenantSchema = resolveTenantSchema(options.template, options.tenantId);
-	const isTemplateSchema = (value: string) =>
-		value.length > prefix.length + suffix.length &&
-		value.startsWith(prefix) &&
-		value.endsWith(suffix) &&
-		/^[a-z0-9_]+$/.test(value.slice(prefix.length, value.length - suffix.length));
+export function rewriteTenantSchema(sql: string, template: string, tenantId: string): string {
+	const parsed = parseTenantSchemaTemplate(template);
+	const tenantSchema = resolveTenantSchema(template, tenantId);
 
-	// 1. Rewrite `<template schema>.` qualifiers.
 	const tokens = tokenize(sql);
-	let out = "";
+	let rewritten = "";
 	let cursor = 0;
 	for (let k = 0; k < tokens.length; k++) {
-		const token = tokens[k] as Token;
-		const value = name(token);
-		if (!value || !isPunct(tokens[k + 1], ".")) continue;
-		if (!isTemplateSchema(value.toLowerCase()) || value.toLowerCase() === tenantSchema) continue;
-		out += sql.slice(cursor, token.start) + (token.kind === "word" && token.quoted ? `"${tenantSchema}"` : tenantSchema);
+		const token = tokens[k];
+		const value = identifier(token);
+		if (!token || !value || !isPunct(tokens[k + 1], ".")) continue;
+		if (!matchesTemplate(parsed, value) || value.toLowerCase() === tenantSchema) continue;
+		const replacement = token.kind === "word" && token.quoted ? `"${tenantSchema}"` : tenantSchema;
+		rewritten += sql.slice(cursor, token.start) + replacement;
 		cursor = token.end;
 	}
-	const rewritten = out + sql.slice(cursor);
+	rewritten += sql.slice(cursor);
 
-	// 2a. No other tenant's schema may remain anywhere (strings and comments included).
-	const pattern = new RegExp(`${escapeRegex(prefix)}([a-z0-9_]+)${escapeRegex(suffix)}`, "gi");
+	const pattern = new RegExp(`${escapeRegex(parsed.prefix)}[a-z0-9_]+${escapeRegex(parsed.suffix)}`, "gi");
 	for (const match of rewritten.matchAll(pattern)) {
 		if (match[0].toLowerCase() !== tenantSchema) {
 			throw new TenantSchemaError("Query references another tenant's schema");
 		}
 	}
-
-	// 2b. Every relation read must be tenant-schema, shared-schema or a CTE.
-	assertRelationsAllowed(tokenize(rewritten), tenantSchema, options.sharedSchemas ?? []);
 	return rewritten;
 }
 
-function assertRelationsAllowed(tokens: Token[], tenantSchema: string, sharedSchemas: string[]) {
-	const allowedSchemas = new Set([tenantSchema, ...sharedSchemas.map((s) => s.trim().toLowerCase())]);
-	const cteNames = new Set<string>();
-	for (let k = 0; k + 2 < tokens.length; k++) {
-		// `name AS (` and `name (cols) AS (` inside WITH
-		const value = name(tokens[k]);
-		if (!value) continue;
-		if (isKeyword(tokens[k + 1], "as") && isPunct(tokens[k + 2], "(")) cteNames.add(value);
-		if (isPunct(tokens[k + 1], "(")) {
-			let j = k + 2;
-			while (j < tokens.length && !isPunct(tokens[j], ")")) j++;
-			if (isKeyword(tokens[j + 1], "as") && isPunct(tokens[j + 2], "(")) cteNames.add(value);
-		}
-	}
+/** Allowlist key that stands for "the tenant's own schema". */
+export const TENANT_SCHEMA_KEY = PLACEHOLDER;
 
-	const check = (start: number): number => {
-		// Returns the index after the relation (and its alias).
-		let k = start;
-		if (isKeyword(tokens[k], "lateral")) k++;
-		if (isPunct(tokens[k], "(")) return k; // subquery: checked as its own SELECT
-		const parts: string[] = [];
-		const first = name(tokens[k]);
-		if (!first) return k;
-		parts.push(first);
-		k++;
-		while (isPunct(tokens[k], ".") && name(tokens[k + 1])) {
-			parts.push(name(tokens[k + 1]) as string);
-			k += 2;
-		}
-		if (isPunct(tokens[k], "(")) return k; // table function, e.g. generate_series(...)
-		const relation = parts.join(".");
-		if (parts.length === 1) {
-			if (!cteNames.has(parts[0] as string)) {
-				throw new TenantSchemaError(
-					`Table "${relation}" must be schema-qualified with the tenant schema`,
-				);
-			}
-		} else {
-			const schema = (parts[parts.length - 2] as string).toLowerCase();
-			if (parts.length > 3 || !allowedSchemas.has(schema)) {
-				throw new TenantSchemaError(`Table "${relation}" is outside the tenant schema`);
-			}
-		}
-		if (isKeyword(tokens[k], "as")) k++;
-		const alias = tokens[k];
-		if (alias?.kind === "word" && !(alias.quoted === false && CLAUSE_WORDS.has(alias.text.toLowerCase()))) k++;
-		return k;
-	};
-
-	// A FROM counts only at a depth where a SELECT was seen (skips EXTRACT(x FROM y) etc.).
-	const selectAtDepth: boolean[] = [false];
-	for (let k = 0; k < tokens.length; k++) {
-		const token = tokens[k];
-		if (isPunct(token, "(")) selectAtDepth.push(false);
-		else if (isPunct(token, ")")) {
-			if (selectAtDepth.length > 1) selectAtDepth.pop();
-		}
-		else if (isKeyword(token, "select")) selectAtDepth[selectAtDepth.length - 1] = true;
-		else if (isKeyword(token, "join")) k = check(k + 1) - 1;
-		else if (
-			isKeyword(token, "from") &&
-			selectAtDepth[selectAtDepth.length - 1] &&
-			!isKeyword(tokens[k - 1], "distinct") // IS [NOT] DISTINCT FROM
-		) {
-			let j = check(k + 1);
-			while (isPunct(tokens[j], ",")) j = check(j + 1);
-			k = j - 1;
-		}
-	}
+/**
+ * Allowlist view of a schema name: every schema the template can produce maps to
+ * TENANT_SCHEMA_KEY, so one allowlist (`group_4048_indexed.*`, or the default
+ * `{tenant}.*`) covers every tenant. The rewrite has already pinned template
+ * schemas to the caller's own schema before the allowlist is checked.
+ */
+export function tenantSchemaKey(template: string): (schema: string) => string {
+	const parsed = parseTenantSchemaTemplate(template);
+	return (schema) => (matchesTemplate(parsed, schema) ? TENANT_SCHEMA_KEY : schema.toLowerCase());
 }
 
 function escapeRegex(value: string): string {
