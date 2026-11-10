@@ -596,6 +596,8 @@ await qp.ask("How many members joined last month?", { tenantId: "4048" });
 
 Queries that read anything outside the tenant's schema, a shared schema or a CTE are refused, so a tenant cannot reach another tenant's schema. `allowedTables` written for the template schema (`group_4048_indexed.users`) applies to every tenant's schema. `tenantId` must be 1–64 letters, digits or `_`. Postgres and Redshift only. Adding a tenant needs no QueryPanel call: create its schema, then sign JWTs with its `tenantId`.
 
+For embedded dashboards, set the same template as **Tenant schema template** on the datasource in QueryPanel and mint the usual JWT; `tenantId` is only the part that fills `{tenant}` (`"4048"`, not `"group_4048_indexed"`). See [Tenant isolation](https://querypanel.io/docs/tenant-isolation#schema-per-tenant).
+
 ## Building locally
 
 ```bash
