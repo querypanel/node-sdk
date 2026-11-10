@@ -233,7 +233,9 @@ function assertRelationsAllowed(tokens: Token[], tenantSchema: string, sharedSch
 	for (let k = 0; k < tokens.length; k++) {
 		const token = tokens[k];
 		if (isPunct(token, "(")) selectAtDepth.push(false);
-		else if (isPunct(token, ")")) selectAtDepth.length > 1 && selectAtDepth.pop();
+		else if (isPunct(token, ")")) {
+			if (selectAtDepth.length > 1) selectAtDepth.pop();
+		}
 		else if (isKeyword(token, "select")) selectAtDepth[selectAtDepth.length - 1] = true;
 		else if (isKeyword(token, "join")) k = check(k + 1) - 1;
 		else if (
