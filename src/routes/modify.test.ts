@@ -1286,6 +1286,24 @@ describe("routes/modify", () => {
 			});
 		});
 
+		it("surfaces the server's error when /v2/rewrite-datefilter returns no SQL", async () => {
+			mockClient.post.mockResolvedValueOnce({ success: false, error: "no date column to filter" });
+
+			await expect(
+				modifyChart(
+					mockClient,
+					mockQueryEngine,
+					{
+						sql: "SELECT * FROM orders",
+						question: "orders",
+						database: "test-db",
+						sqlModifications: { dateRange: { from: "2024-06-01", to: "2024-06-30" } },
+					},
+					options,
+				),
+			).rejects.toThrow("no date column to filter");
+		});
+
 		it("calls /v2/rewrite-datefilter (no /v2/query, no chart) when params are not substitutable", async () => {
 			mockClient.post.mockResolvedValueOnce({
 				success: true,

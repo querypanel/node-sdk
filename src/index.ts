@@ -681,6 +681,9 @@ export class QueryPanelSdkAPI {
 	 * Runs SQL against an attached database with tenant isolation applied.
 	 * Used by embed run-sql (e.g. dashboard chart execution). Requires a database
 	 * to be attached (e.g. via attachPostgres) and options.tenantId.
+	 *
+	 * Pass the server-stored `queryId` (from ask() / modifyChart()). Never pass SQL that
+	 * came from a browser.
 	 */
 	async runSqlForDashboard(
 		input: {
@@ -689,7 +692,10 @@ export class QueryPanelSdkAPI {
 			 * and params are executed and `sql` / `params` are ignored.
 			 */
 			queryId?: string;
-			/** Required when `queryId` is not provided (backward compatible raw SQL). */
+			/**
+			 * @deprecated Raw SQL is run as given (with tenant isolation). Pass `queryId` so
+			 * only server-stored SQL runs.
+			 */
 			sql?: string;
 			params?: Record<string, unknown>;
 			database?: string;

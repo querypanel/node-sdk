@@ -841,6 +841,11 @@ export async function modifyChart(
 			sessionId,
 		);
 
+		if (typeof queryResponse?.sql !== "string" || !queryResponse.sql) {
+			// An in-process handler reports failure as data, not an HTTP error.
+			const error = (queryResponse as { error?: unknown } | undefined)?.error;
+			throw new Error(typeof error === "string" && error ? error : `${endpoint} returned no SQL`);
+		}
 		finalSql = queryResponse.sql;
 		paramMetadata = Array.isArray(queryResponse.params)
 			? queryResponse.params

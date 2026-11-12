@@ -359,6 +359,7 @@ await qp.createChart({ title: "Revenue", query_id: modified.queryId, vega_lite_s
 
 - When `queryId` / `query_id` is present it **takes priority**: any `sql` / `sql_params` you also send is ignored.
 - An id that belongs to another tenant, or does not exist, is rejected (`404`).
+- `runSqlForDashboard({ sql })` is **deprecated**: never forward SQL from a browser. Use `queryId`.
 - `sql` is still accepted when no id is sent, for backward compatibility. Charts saved without a `query_id` (for example older charts) keep using their stored SQL.
 - `modifyChart()` returns the input `queryId` when only visualization changes, and a new `queryId` when SQL is regenerated. Custom SQL (`customSql`) has no id.
 - Generation fails if the server cannot record the query, so a successful `ask()` always returns a `queryId`.
